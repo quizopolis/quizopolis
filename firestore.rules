@@ -1,0 +1,72 @@
+rules_version = '2';
+
+// Κανόνες ασφαλείας για το Quizopolis. / Security rules for Quizopolis.
+// Επικόλλησέ τους στο Firebase / Paste them in Firebase: Firestore Database → Rules → Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    // Εκπαιδευτικός = όποιος συνδέθηκε με email (οι μαθητές μπαίνουν ανώνυμα).
+    // Teacher = signed in with email (students join anonymously).
+    function isTeacher() { return signedIn() && request.auth.token.firebase.sign_in_provider != 'anonymous'; }
+    function ownsOld() { return isTeacher() && resource.data.owner == request.auth.uid; }
+    function ownsNew() { return isTeacher() && request.resource.data.owner == request.auth.uid; }
+
+    // Προφίλ εκπαιδευτικού: μόνο ο ίδιος. / Teacher profile: only its owner.
+    match /teachers/{uid} {
+      allow read, write: if isTeacher() && request.auth.uid == uid;
+    }
+
+    // Παιχνίδια και τάξεις: μόνο ο δημιουργός τους. / Games and classes: only their creator.
+    match /games/{id} {
+      allow read, delete: if ownsOld();
+      allow create: if ownsNew();
+      allow update: if ownsOld() && ownsNew();
+    }
+    match /classes/{id} {
+      allow read, delete: if ownsOld();
+      allow create: if ownsNew();
+      allow update: if ownsOld() && ownsNew();
+    }
+    // Μικρές κάρτες για τις λίστες της βιβλιοθήκης και των αναφορών.
+    // Small cards for the library and report lists.
+    match /gameIndex/{id} {
+      allow read, delete: if ownsOld();
+      allow create: if ownsNew();
+      allow update: if ownsOld() && ownsNew();
+    }
+    match /sessionIndex/{id} {
+      allow read, delete: if ownsOld();
+      allow create: if ownsNew();
+      allow update: if ownsOld() && ownsNew();
+    }
+
+    // Σύνδεσμοι παιχνιδιών: τους διαβάζει όποιος έχει τον σύνδεσμο, τους αλλάζει μόνο ο εκπαιδευτικός τους.
+    // Game links: anyone with the link can read them; only their teacher can change them.
+    match /sessions/{sid} {
+      allow get: if signedIn();
+      allow list: if ownsOld();
+      allow create: if ownsNew();
+      allow update: if ownsOld() && ownsNew();
+      allow delete: if ownsOld();
+
+      function session() { return get(/databases/$(database)/documents/sessions/$(sid)).data; }
+      function isOpen(s, pid) {
+        return s.status != 'ended'
+          && (s.get('deadline', null) == null || request.time.toMillis() < s.deadline)
+          && !(pid in s.get('kicked', {}));
+      }
+
+      // Απαντήσεις μαθητών: κάθε μαθητής γράφει μόνο τις δικές του, όσο ο σύνδεσμος είναι ανοιχτός.
+      // Student answers: each student writes only their own, while the link is open.
+      match /players/{pid} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && request.auth.uid == pid
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
+          && isOpen(session(), pid);
+        allow delete: if isTeacher() && session().owner == request.auth.uid;
+      }
+    }
+  }
+}
