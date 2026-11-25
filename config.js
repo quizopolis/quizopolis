@@ -18,8 +18,15 @@
 window.QUIZOPOLIS_CONFIG = {
   siteName: 'Quizopolis',
   lang: 'el',
-
-  firebase: null
+  firebase: {
+    apiKey: "AIzaSyCFzgNP_1J1Go4KUIlyQoxVbtVrKebf8vs",
+    authDomain: "quizopolis-2d373.firebaseapp.com",
+    projectId: "quizopolis-2d373",
+    storageBucket: "quizopolis-2d373.firebasestorage.app",
+    messagingSenderId: "887516851153",
+    appId: "1:887516851153:web:c7ed71bd3851d8ed800ef0"
+  }
+};
 
   /* Παράδειγμα / Example:
   firebase: {
