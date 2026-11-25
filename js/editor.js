@@ -7,6 +7,7 @@ import { __, LANG } from './i18n.js';
 import { choiceOf, readiness, pickDialog, NEED, usesQuizExtras } from './choose.js';
 import { playOwn, playProblem } from './playown.js';
 import { gameIcon, tint } from './gicons.js';
+import { readImage, PHOTO, BIG } from './images.js';
 
 const TIMES = [0, 10, 20, 30, 45, 60, 90, 120, 180, 300];
 const timeLabel = (s) => (!s ? __('Χωρίς όριο χρόνου') : s < 60 ? __('{0} δευτερόλεπτα', s) : s === 90 ? __('1,5 λεπτό') : s === 60 ? __('1 λεπτό') : __('{0} λεπτά', s / 60));
@@ -14,36 +15,9 @@ const LIMIT = 900000; // λίγο κάτω από το όριο του 1 MB αν
 const MAX_Q = 100;
 
 /* ---------- εικόνες: σμίκρυνση στον browser και αποθήκευση μέσα στο παιχνίδι ---------- */
-export function readImage(file, maxDim = 960, maxBytes = 140000) {
-  return new Promise((resolve, reject) => {
-    if (!file || !/^image\//.test(file.type)) { reject(new Error(__('Διάλεξε αρχείο εικόνας (JPG, PNG, GIF ή WebP).'))); return; }
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const draw = (dim) => {
-        const scale = Math.min(1, dim / Math.max(img.naturalWidth, img.naturalHeight));
-        const w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
-        const cv = document.createElement('canvas');
-        cv.width = w; cv.height = h;
-        const g = cv.getContext('2d');
-        g.fillStyle = '#fff';
-        g.fillRect(0, 0, w, h);
-        g.drawImage(img, 0, 0, w, h);
-        for (let q = 0.82; q >= 0.45; q -= 0.12) {
-          const out = cv.toDataURL('image/jpeg', q);
-          if (out.length <= maxBytes) return out;
-        }
-        return null;
-      };
-      let dim = maxDim, out = null;
-      while (!out && dim >= 240) { out = draw(dim); dim = Math.round(dim * 0.75); }
-      if (out) resolve(out); else reject(new Error(__('Η εικόνα είναι πολύ μεγάλη. Δοκίμασε μικρότερη.')));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(__('Η εικόνα δεν άνοιξε. Δοκίμασε άλλο αρχείο.'))); };
-    img.src = url;
-  });
-}
+// Οι εικόνες συμπιέζονται στο images.js· το readImage μένει διαθέσιμο κι από εδώ.
+// Images are compressed in images.js; readImage stays available from here too.
+export { readImage };
 
 /* ---------- εισαγωγή ερωτήσεων από απλό κείμενο ---------- */
 export function parseQuestionText(src) {
@@ -521,7 +495,7 @@ export function viewEditor(id, ctx, choice) {
     const b = busy(__('Ετοιμάζεται η εικόνα…'));
     // Στις «Λέξεις στην εικόνα» η εικόνα είναι όλη η ερώτηση: κρατάμε μεγαλύτερο μέγεθος για να διαβάζεται.
     const big = TYPES[q.type] && TYPES[q.type].ownImage;
-    try { q.image = await readImage(file, big ? 1280 : 960, big ? 300000 : 140000); markDirty(); drawCanvas(); } catch (er) { toast(errText(er), 'error'); }
+    try { q.image = await readImage(file, big ? BIG.dim : PHOTO.dim, big ? BIG.bytes : PHOTO.bytes); markDirty(); drawCanvas(); } catch (er) { toast(errText(er), 'error'); }
     b.close();
   }
   root.addEventListener('dragover', (e) => {

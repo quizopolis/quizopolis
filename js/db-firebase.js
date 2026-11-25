@@ -4,7 +4,7 @@
   - Cloud Firestore: παιχνίδια, τάξεις, παιχνίδια σε εξέλιξη, απαντήσεις μαθητών.
   Οι κανόνες ασφαλείας (firestore.rules) ορίζουν ποιος διαβάζει και γράφει τι.
 */
-import { makeError, gameMeta, sessionMeta } from './store.js';
+import { makeError, gameMeta, sessionMeta, splitImages, mediaId } from './store.js';
 import { __ } from './i18n.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/12.19.0/';
@@ -46,14 +46,14 @@ function wrap(e) {
 }
 const guard = (p) => p.catch((e) => { throw wrap(e); });
 
+// Η λήψη του SDK ξεκινά μόλις φορτωθεί αυτό το αρχείο. / The SDK download starts as soon as this file loads.
+const sdk = Promise.all([import(SDK + 'firebase-app.js'), import(SDK + 'firebase-auth.js'), import(SDK + 'firebase-firestore.js')]);
+sdk.catch(() => {});
+
 export async function create(config) {
   let mods;
   try {
-    mods = await Promise.all([
-      import(SDK + 'firebase-app.js'),
-      import(SDK + 'firebase-auth.js'),
-      import(SDK + 'firebase-firestore.js')
-    ]);
+    mods = await sdk;
   } catch (e) {
     throw makeError(__('Δεν φόρτωσε το Firebase. Έλεγξε τη σύνδεση στο διαδίκτυο και ανανέωσε τη σελίδα.'), 'sdk');
   }
@@ -194,10 +194,17 @@ export async function create(config) {
       const full = Object.assign({}, body, { owner: u.uid, ownerName: u.name || '', createdAt: Date.now() });
       const meta = sessionMeta(Object.assign({ id: ref.id }, full));
       delete meta.id;
-      batch.set(ref, full);
+      const { lite, images } = splitImages(full);
+      batch.set(ref, lite);
       batch.set(d('sessionIndex', ref.id), meta);
+      if (images) batch.set(d('sessions', mediaId(ref.id)), { owner: u.uid, media: true, images });
       await guard(batch.commit());
       return { id: ref.id };
+    },
+    // Οι εικόνες ενός συνδέσμου: μία ανάγνωση. / A link's pictures: one read.
+    async getMedia(id) {
+      const snap = await guard(F.getDoc(d('sessions', mediaId(id))));
+      return snap.exists() ? (snap.data().images || null) : null;
     },
     async updateSession(id, patch) {
       await guard(F.setDoc(d('sessions', id), patch, { merge: true }));
@@ -208,7 +215,7 @@ export async function create(config) {
       }
     },
     async deleteSession(id) {
-      const ps = await guard(F.getDocs(c('sessions', id, 'players')));
+      const [ps, cur] = await Promise.all([guard(F.getDocs(c('sessions', id, 'players'))), F.getDoc(d('sessions', id)).catch(() => null)]);
       let batch = F.writeBatch(db);
       let n = 0;
       for (const p of ps.docs) {
@@ -217,6 +224,7 @@ export async function create(config) {
       }
       batch.delete(d('sessions', id));
       batch.delete(d('sessionIndex', id));
+      if (cur && cur.exists() && cur.data().media) batch.delete(d('sessions', mediaId(id))); // και οι εικόνες του / and its pictures
       await guard(batch.commit());
     },
     // Στατιστικά για τον πίνακας «Αποτελέσματα»: μία εγγραφή στην κάρτα της λίστας, ενημερώνει και τη μνήμη.
@@ -235,8 +243,9 @@ export async function create(config) {
 
     /* ---------- μαθητές ---------- */
     async joinSession(sid, uid, player) {
-      await guard(F.setDoc(d('sessions', sid, 'players', uid), Object.assign({}, player, { uid }), { merge: true }));
-      return data(await guard(F.getDoc(d('sessions', sid, 'players', uid))));
+      const body = Object.assign({}, player, { uid });
+      await guard(F.setDoc(d('sessions', sid, 'players', uid), body, { merge: true }));
+      return body; // χωρίς δεύτερη ανάγνωση / no second read
     },
     async getPlayer(sid, uid) { return data(await guard(F.getDoc(d('sessions', sid, 'players', uid)))); },
     async updatePlayer(sid, uid, patch) {
@@ -254,6 +263,13 @@ export async function create(config) {
     },
     watchPlayers(sid, cb, onErr) {
       return F.onSnapshot(c('sessions', sid, 'players'),
+        (qs) => cb(qs.docs.map((s) => Object.assign({ uid: s.id }, s.data()))),
+        (e) => { if (onErr) onErr(wrap(e)); });
+    },
+    // Μόνο όσοι τελείωσαν, για την κατάταξη στο τέλος: κάθε παιδί που τελειώνει κοστίζει μία ανάγνωση σε όσους την κοιτάζουν.
+    // Only finished players, for the end-of-game ranking: each child who finishes costs one read per viewer.
+    watchFinished(sid, cb, onErr) {
+      return F.onSnapshot(F.query(c('sessions', sid, 'players'), F.where('done', '==', true)),
         (qs) => cb(qs.docs.map((s) => Object.assign({ uid: s.id }, s.data()))),
         (e) => { if (onErr) onErr(wrap(e)); });
     },

@@ -3,11 +3,16 @@ import { CFG } from './ui.js';
 
 export let DB = null;
 
+// Με Firebase, η λήψη του ξεκινά αμέσως, παράλληλα με την υπόλοιπη σελίδα.
+// With Firebase, its download starts right away, alongside the rest of the page.
+const FB = CFG.firebase && typeof CFG.firebase === 'object' && CFG.firebase.apiKey && CFG.firebase.projectId ? CFG.firebase : null;
+const fbModule = FB ? import('./db-firebase.js') : null;
+if (fbModule) fbModule.catch(() => {});
+
 export async function initStore() {
-  const fb = CFG.firebase;
-  if (fb && typeof fb === 'object' && fb.apiKey && fb.projectId) {
-    const m = await import('./db-firebase.js');
-    DB = await m.create(fb);
+  if (FB) {
+    const m = await fbModule;
+    DB = await m.create(FB);
   } else {
     const m = await import('./db-local.js');
     DB = m.create();
@@ -53,3 +58,36 @@ export function makeError(message, code) {
   e.code = code || 'app';
   return e;
 }
+
+/* Οι εικόνες ενός συνδέσμου φυλάγονται σε χωριστό έγγραφο (sessions/{id}-img, ίδιοι κανόνες με τον σύνδεσμο),
+   ώστε η σελίδα του παιχνιδιού να ανοίγει αμέσως και οι εικόνες να έρχονται όσο το παιδί γράφει το όνομά του.
+   A link's pictures live in a separate document (sessions/{id}-img, same rules as the link), so the game page
+   opens at once and the pictures arrive while the child types their name. */
+export const mediaId = (sid) => sid + '-img';
+const isData = (v) => typeof v === 'string' && /^data:image\//.test(v);
+export function splitImages(s) {
+  const images = {};
+  const questions = (s.questions || []).map((q) => {
+    if (!q || !isData(q.image)) return q;
+    images[q.id] = q.image;
+    const c = Object.assign({}, q);
+    delete c.image;
+    return c;
+  });
+  let settings = s.settings;
+  if (settings && settings.picture && isData(settings.picture.image)) {
+    images['@picture'] = settings.picture.image;
+    settings = Object.assign({}, settings, { picture: Object.assign({}, settings.picture) });
+    delete settings.picture.image;
+  }
+  if (!Object.keys(images).length) return { lite: s, images: null };
+  return { lite: Object.assign({}, s, { questions, settings, media: true }), images };
+}
+export function withImages(s, images) {
+  if (!s || !images) return s;
+  const out = Object.assign({}, s, { questions: (s.questions || []).map((q) => (q && !q.image && images[q.id] ? Object.assign({}, q, { image: images[q.id] }) : q)) });
+  const pic = out.settings && out.settings.picture;
+  if (images['@picture'] && pic && typeof pic === 'object' && !pic.image) out.settings = Object.assign({}, out.settings, { picture: Object.assign({}, pic, { image: images['@picture'] }) });
+  return out;
+}
+

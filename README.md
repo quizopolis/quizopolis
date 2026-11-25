@@ -20,6 +20,8 @@
 - Τάξεις με λίστα ονομάτων: τα παιδιά πατούν το όνομά τους αντί να το γράφουν.
 - Αποτελέσματα: ποιος έπαιξε, τι δυσκόλεψε την τάξη, ποια παιδιά χρειάζονται βοήθεια, ανάλυση ανά ερώτηση και ανά μαθητή, χρωματιστός πίνακας, εξαγωγή CSV για Excel.
 - **Πίνακας αποτελεσμάτων** (σελίδα «Αποτελέσματα»): όλα τα παιχνίδια που έστειλες μαζί, με φίλτρο για τάξη και περίοδο. Δείχνει τα βασικά νούμερα, τις συμμετοχές ανά εβδομάδα, ποια παιδιά είναι κάτω από 50% σε 2 ή περισσότερα παιχνίδια, τις πιο δύσκολες ερωτήσεις και, για κάθε τάξη, έναν πίνακα με κάθε παιδί σε κάθε παιχνίδι (κόκκινο: κάτω από 50%, παύλα: δεν έπαιξε). Τα στατιστικά κάθε συνδέσμου αποθηκεύονται μία φορά, ώστε ο πίνακας να μην ξαναδιαβάζει κάθε φορά όλα τα παιδιά και να μένει μέσα στο δωρεάν όριο του Firebase. Δεν χρειάζεται αλλαγή στους κανόνες του Firebase.
+- **Τέλος παιχνιδιού για τα παιδιά:** όταν τελειώνουν, μένουν σε μια οθόνη με το αποτέλεσμά τους και την κατάταξη της τάξης, που ενημερώνεται όσο τελειώνουν και οι υπόλοιποι. Δεν βλέπουν ποτέ την αρχική σελίδα. Το «Έξοδος» στη μέση του παιχνιδιού δείχνει την κατάταξη με κουμπί «Συνέχισε το παιχνίδι». Την κατάταξη μπορείς να την κλείσεις σε κάθε σύνδεσμο (Περισσότερες ρυθμίσεις → «Κατάταξη στο τέλος»). Στο «Τεστ» δείχνει τις σωστές απαντήσεις, και μόνο όταν τα παιδιά βλέπουν τα αποτελέσματά τους.
+- **Γρήγορο άνοιγμα στα κινητά:** τα παιδιά κατεβάζουν μόνο τα αρχεία του παιχνιδιού. Οι εικόνες ενός συνδέσμου μικραίνουν όταν τον στέλνεις και φυλάγονται χωριστά, οπότε η σελίδα ανοίγει αμέσως και οι εικόνες έρχονται όσο το παιδί γράφει το όνομά του. Δεν χρειάζεται αλλαγή στους κανόνες του Firebase.
 
 **Αρχική σελίδα:** λέει τι είναι η πλατφόρμα, δείχνει τα παιχνίδια και έχει το κουμπί **«Δοκίμασε ένα παιχνίδι»**: όποιος την επισκεφτεί παίζει ένα έτοιμο παιχνίδι ως μαθητής, χωρίς λογαριασμό και χωρίς να αποθηκευτεί τίποτα. Οι μαθητές βρίσκουν εκεί και το παιχνίδι που άφησαν στη μέση.
 
@@ -127,6 +129,7 @@
 | `js/modes.js`, `js/scoring.js` | Οι τρόποι παιχνιδιού, οι πόντοι και οι ομάδες |
 | `js/teacher.js`, `js/share.js`, `js/editor.js`, `js/report.js` | Τα παιχνίδια μου και «Στείλε στην τάξη», σελίδα συνδέσμου, επεξεργαστής, αναφορά ενός συνδέσμου |
 | `js/dashboard.js`, `js/stats.js` | Ο πίνακας «Αποτελέσματα» και τα αποθηκευμένα στατιστικά κάθε συνδέσμου |
+| `js/images.js`, `js/preload.js` | Συμπίεση εικόνων και γρήγορη φόρτωση της σελίδας |
 | `js/gicons.js` | Τα εικονίδια των παιχνιδιών |
 | `assets/fonts/` | Η γραμματοσειρά Inter (SIL Open Font License), μέσα στην εφαρμογή ώστε να μη χρειάζεται το Google Fonts |
 | `js/play.js` | Η είσοδος του μαθητή και τα κουίζ |
@@ -155,5 +158,7 @@ Quizopolis is a free platform for review games in the classroom. A teacher picks
 - The editor saves by itself. The home page has a **Try a game** button that lets visitors play a sample as a student, with nothing saved.
 - **Label the picture:** upload a picture (e.g. a diagram of the digestive system), click where each gap goes and type its word, with optional distractor words. Children drag the words into the gaps with a mouse or finger, or tap a word and then its gap. It appears as a game under New game and as a question type in every game.
 - **Results dashboard** (the Results page): every game you sent in one place, filtered by class and period. It shows the key numbers, plays per week, which children are below 50% over 2 or more games, the hardest questions and, for each class, a grid of every child in every game (red: below 50%, dash: did not play). Each link's statistics are stored once, so the dashboard does not re-read every child on each visit and stays inside Firebase's free quota. No change to the Firebase rules is needed.
+- **End of the game for children:** when they finish they stay on a screen with their result and the class ranking, which updates as the others finish. They never see the home page. "Exit" in the middle of a game shows the ranking with a "Continue the game" button. You can turn the ranking off per link (More settings → "Leaderboard at the end"). In a "Test" it shows correct answers, and only when children see their results.
+- **Fast loading on phones:** children download only the game's files. A link's pictures are shrunk when you send it and stored separately, so the page opens at once and the pictures arrive while the child types their name. No change to the Firebase rules is needed.
 - **Play (▶)** on every game card and in the editor lets the teacher play their own game right away, the way children will: as a test, or with the whole class on the classroom screen. Nothing is saved or shown in the results. On the projector page, the game chosen for the questions comes first; the team games (Millionaire, Jeopardy, Game show) follow.
 - Fonts (Inter, SIL Open Font License) are served from the site itself, so no third-party font service is contacted.

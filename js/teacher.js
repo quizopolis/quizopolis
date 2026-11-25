@@ -268,7 +268,7 @@ export async function shareDialog(game0, ctx) {
     if ('powerups' in d) h += toggle('powerups', __('Βοήθειες (50:50, διπλοί πόντοι, έξτρα χρόνος)'), d.powerups, __('Κερδίζονται με 3 σωστές στη σειρά.'));
     if ('shuffleQ' in d) h += toggle('shuffleQ', __('Ανακάτεμα ερωτήσεων'), d.shuffleQ);
     if ('shuffleA' in d) h += toggle('shuffleA', __('Ανακάτεμα απαντήσεων'), d.shuffleA);
-    if ('leaderboard' in d && mode !== 'test') h += toggle('leaderboard', __('Κατάταξη στο τέλος'), d.leaderboard);
+    if ('leaderboard' in d) h += toggle('leaderboard', __('Κατάταξη στο τέλος'), d.leaderboard);
     if ('showResults' in d) h += toggle('showResults', __('Στο τέλος τα παιδιά βλέπουν το αποτέλεσμα και τις διορθώσεις'), d.showResults);
     if ('teams' in d) h += `<div class="field"><label class="label" for="o-teams">${__('Αριθμός ομάδων')}</label><select class="input input-narrow" id="o-teams" data-o="teams">${[2, 3, 4, 5, 6].map((n) => `<option ${n === d.teams ? 'selected' : ''}>${n}</option>`).join('')}</select>
       <p class="hint">${__('Κάθε παιδί που ανοίγει τον σύνδεσμο μπαίνει στη μικρότερη ομάδα.')}</p></div>`;
@@ -337,8 +337,8 @@ export async function shareDialog(game0, ctx) {
         if (e.target.name === 'pic') dlg.querySelector('.pic-own').hidden = e.target.value !== 'own';
         if (e.target.matches('[data-pic-file]') && e.target.files && e.target.files[0]) {
           try {
-            const { readImage } = await import('./editor.js');
-            const image = await readImage(e.target.files[0], 900, 160000);
+            const { readImage } = await import('./images.js');
+            const image = await readImage(e.target.files[0], 900, 120000);
             picture = { image, answer: (picture && picture.answer) || '' };
             dlg.querySelector('.pic-prev').innerHTML = `<img src="${esc(image)}" alt="">`;
           } catch (er) { toast(errText(er), 'error'); }
@@ -365,9 +365,17 @@ export async function shareDialog(game0, ctx) {
     deadline: days ? Date.now() + days * 864e5 : null
   };
   if (mode === 'team') body.teams = TEAM_SET.slice(0, Math.max(2, Math.min(6, opts.teams || 4)));
-  if (JSON.stringify(body).length > 950000) { dialog({ title: __('Το παιχνίδι είναι πολύ μεγάλο'), text: __('Οι εικόνες πιάνουν πολύ χώρο. Αφαίρεσε κάποιες και ξαναδοκίμασε.') }); return; }
   const b = busy(__('Φτιάχνεται ο σύνδεσμος…'));
   try {
+    // Ελαφρύτερες εικόνες για τα κινητά των παιδιών· το παιχνίδι κρατά τις αρχικές.
+    // Lighter pictures for the children's phones; the game keeps the originals.
+    const { slimQuestions } = await import('./images.js');
+    body.questions = await slimQuestions(body.questions, (q) => !!(TYPES[q.type] && TYPES[q.type].ownImage));
+    if (JSON.stringify(body).length > 950000) {
+      b.close();
+      dialog({ title: __('Το παιχνίδι είναι πολύ μεγάλο'), text: __('Οι εικόνες πιάνουν πολύ χώρο. Αφαίρεσε κάποιες και ξαναδοκίμασε.') });
+      return;
+    }
     const { id } = await DB.createSession(body);
     b.close();
     ctx.go('/t/link/' + id);

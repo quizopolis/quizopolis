@@ -142,7 +142,15 @@ export const ICON = {
 
 /* Μικρό μενού κάτω από ένα κουμπί (π.χ. «⋯»). items: [{ label, icon, act, danger }] ή '-' για διαχωριστικό. */
 /* Πού οδηγεί η «Έξοδος» ενός παιχνιδιού: στην αρχή, ή πίσω στον εκπαιδευτικό όταν δοκιμάζει το δικό του. */
-export const exitHref = (S) => (S && S.own && /^\/t(\/|$)/.test(S.own.back || '') ? '#' + S.own.back : '#/');
+// Πού οδηγεί το «Έξοδος» του παιχνιδιού: ο εκπαιδευτικός γυρίζει στη σελίδα του, ο επισκέπτης στις δοκιμές,
+// και τα παιδιά στην κατάταξη του παιχνιδιού τους, ποτέ στην αρχική σελίδα.
+// Where a game's "Exit" leads: the teacher back to their page, a visitor to the try page,
+// and children to their game's ranking, never to the home page.
+export const exitHref = (S) => {
+  if (S && S.own && /^\/t(\/|$)/.test(S.own.back || '')) return '#' + S.own.back;
+  if (S && S.sandbox) return '#/try';
+  return S && S.id ? `#/board/${S.id}` : '#/';
+};
 
 export function popMenu(btn, items) {
   document.querySelectorAll('.menu').forEach((m) => m.remove());

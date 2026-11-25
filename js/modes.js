@@ -27,7 +27,7 @@ export const MODES = {
     short: __('Χωρίς πόντους και διορθώσεις· τα αποτελέσματα στην αναφορά.'),
     desc: __('Χωρίς πόντους, χωρίς χρονόμετρο και χωρίς διόρθωση στη διάρκεια. Τα αποτελέσματα τα βλέπεις στην αναφορά.'),
     kid: __('Απάντησε σε όλες τις ερωτήσεις. Τα αποτελέσματα τα βλέπει ο εκπαιδευτικός σου.'),
-    defaults: { shuffleQ: true, shuffleA: true, leaderboard: false, showResults: true }
+    defaults: { shuffleQ: true, shuffleA: true, leaderboard: true, showResults: true }
   },
   flashcards: {
     label: __('Κάρτες μελέτης'), icon: '🃏', group: 'basic',

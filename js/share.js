@@ -1,7 +1,7 @@
 /* Η σελίδα ενός συνδέσμου: ο σύνδεσμος για τα παιδιά, ποιοι παίζουν τώρα και μια πρώτη ματιά στα αποτελέσματα.
    A link's page: the link for the children, who is playing now, and a first look at the results. */
 import { esc, app, setTitle, toast, dialog, num, plural, ICON, errText, confirmDanger, copy, CFG, avatar } from './ui.js';
-import { DB } from './store.js';
+import { DB, withImages } from './store.js';
 import { MODES, unitOf } from './modes.js';
 import { ranking, TEAM_SET } from './scoring.js';
 import { TYPES } from './qtypes.js';
@@ -73,7 +73,7 @@ export function viewLink(sid, ctx) {
     main.querySelector('[data-try-own]').addEventListener('click', (e) => {
       const b = e.currentTarget;
       b.disabled = true;
-      playOwn(S, ctx, { mode: S.mode, join: true, back: '/t/link/' + sid }).catch((er) => toast(errText(er), 'error')).finally(() => { b.disabled = false; });
+      (S.media && DB.getMedia ? DB.getMedia(sid).then((im) => withImages(S, im)) : Promise.resolve(S)).then((full) => playOwn(full, ctx, { mode: S.mode, join: true, back: '/t/link/' + sid })).catch((er) => toast(errText(er), 'error')).finally(() => { b.disabled = false; });
     });
     main.querySelector('[data-copy-msg]').addEventListener('click', () => copy(msg).then(() => toast(__('Αντιγράφηκε το μήνυμα με τον σύνδεσμο.'), 'ok'), () => toast(msg)));
     main.querySelector('#lk-url').addEventListener('focus', (e) => e.target.select());

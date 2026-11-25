@@ -212,6 +212,7 @@ export function create(opts = {}) {
       write('sessions', sessions);
       return delay({ id });
     },
+    async getMedia() { return null; }, // εδώ οι εικόνες μένουν μέσα στον σύνδεσμο / here pictures stay inside the link
     async updateSession(id, patch) {
       const sessions = col('sessions');
       if (!sessions[id]) throw makeError(__('Το παιχνίδι δεν βρέθηκε.'), 'missing');
@@ -283,6 +284,9 @@ export function create(opts = {}) {
       const off = on('players:' + sid, emit);
       setTimeout(emit, 0);
       return off;
+    },
+    watchFinished(sid, cb) {
+      return this.watchPlayers(sid, (all) => cb(all.filter((p) => p.done)));
     },
     async removePlayer(sid, uid) {
       const s = col('sessions')[sid];

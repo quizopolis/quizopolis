@@ -1,6 +1,6 @@
 /* Αναφορά ενός παιχνιδιού: επισκόπηση, ανά ερώτηση, ανά μαθητή, πίνακας, εξαγωγή CSV. */
 import { esc, app, setTitle, toast, dialog, num, pct, fmtDate, plural, ICON, errText, download, fmtDuration, copy } from './ui.js';
-import { DB } from './store.js';
+import { DB, withImages } from './store.js';
 import { TYPES, isScored } from './qtypes.js';
 import { ranking, teamStats, playerStats, TEAM_SET } from './scoring.js';
 import { MODES, usesTeams, isReview, unitOf } from './modes.js';
@@ -37,6 +37,7 @@ export function viewReport(sid, ctx) {
   async function load() {
     try {
       [S, players] = await Promise.all([DB.getSession(sid), DB.listPlayers(sid)]);
+      if (S && S.media && DB.getMedia) S = withImages(S, await DB.getMedia(sid).catch(() => null));
     } catch (e) { main.innerHTML = `<div class="banner banner-bad">${esc(errText(e))}</div>`; return; }
     const me = DB.user();
     if (!S || !me || S.owner !== me.uid) { main.innerHTML = ('<div class="empty"><p class="empty-t">' + __('Η αναφορά δεν βρέθηκε.') + '</p><p><a class="btn" href="#/t/links">' + __('Στους συνδέσμους') + '</a></p></div>'); return; }

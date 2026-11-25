@@ -27,6 +27,10 @@ function parse() {
   return { raw, path: path.replace(/\/+$/, '') || '/', params };
 }
 
+function loadFailed() {
+  app().innerHTML = ('<div class="auth"><main class="auth-main"><div class="auth-card"><h1 class="h2">' + __('Δεν φόρτωσε η σελίδα') + '</h1><p>' + __('Έλεγξε τη σύνδεση στο διαδίκτυο και ανανέωσε τη σελίδα.') + '</p></div></main></div>');
+}
+
 async function route(force) {
   const { raw, path, params } = parse();
   if (!force && raw === current) return;
@@ -55,14 +59,22 @@ async function route(force) {
   if (path === '/reset') return viewAuth('reset', params);
   if (path === '/setup') return viewSetup();
   if (path === '/try') return viewTry();
+  // Τα παιδιά φορτώνουν μόνο τις δικές τους οθόνες, όχι όλη την πλατφόρμα του εκπαιδευτικού.
+  // Children load only their own screens, not the whole teacher platform.
+  const kid = /^\/(g|play|board)\/([\w-]+)$/.exec(path);
+  if (kid) {
+    let play;
+    try { play = await import('./play.js'); } catch (e) { loadFailed(); return; }
+    if (raw !== current) return;
+    if (kid[1] === 'g') return play.viewJoin(kid[2], ctx);
+    return play.viewPlay(kid[2], ctx, { board: kid[1] === 'board' });
+  }
   let views;
   try { views = await import('./views.js'); } catch (e) {
-    app().innerHTML = ('<div class="auth"><main class="auth-main"><div class="auth-card"><h1 class="h2">' + __('Δεν φόρτωσε η σελίδα') + '</h1><p>' + __('Έλεγξε τη σύνδεση στο διαδίκτυο και ανανέωσε τη σελίδα.') + '</p></div></main></div>');
+    loadFailed();
     return;
   }
   if (raw !== current) return; // στο μεταξύ πήγαμε αλλού
-  if ((m = /^\/g\/([\w-]+)$/.exec(path))) return views.viewJoin(m[1], ctx);
-  if ((m = /^\/play\/([\w-]+)$/.exec(path))) return views.viewPlay(m[1], ctx);
   if (path === '/t') return teacherOnly(() => views.viewLibrary(ctx));
   if (path === '/t/new') return teacherOnly(() => views.viewChooser(ctx));
   if ((m = /^\/t\/new\/([\w-]+)$/.exec(path))) return teacherOnly(() => views.viewEditor(null, ctx, m[1]));
@@ -387,6 +399,10 @@ document.addEventListener('securitypolicyviolation', (e) => {
 });
 async function boot() {
   const root = app();
+  // Ο κώδικας της οθόνης κατεβαίνει όσο ξεκινά η βάση. / The screen's code downloads while the database starts.
+  const first = parse().path;
+  const early = /^\/(g|play|board)\//.test(first) ? import('./play.js') : /^\/t(\/|$)/.test(first) ? import('./views.js') : null;
+  if (early) early.catch(() => {});
   try {
     await initStore();
   } catch (e) {
