@@ -379,6 +379,8 @@ a.lang-b:focus-visible { box-shadow: var(--focus); }
 .v-setup { background: #fff; }
 .setup { padding-top: 20px; padding-bottom: 72px; max-width: 900px; }
 .setup .h2 { margin-top: 40px; }
+.setup .host-h { font-size: 1.12rem; font-weight: 700; margin: 26px 0 14px; color: var(--ink); }
+.setup .h2 + p { color: var(--ink-2); max-width: 70ch; }
 .steps { list-style: none; counter-reset: st; padding: 0; margin: 0; }
 .steps[start="7"] { counter-reset: st 6; }
 .step { counter-increment: st; position: relative; padding: 4px 0 20px 52px; border-left: 1px solid var(--line-2); margin-left: 16px; }
@@ -829,8 +831,8 @@ a.lang-b:focus-visible { box-shadow: var(--focus); }
   .ed-cover { width: 38px; height: 38px; font-size: 1.2rem; }
   .ed-title { font-size: 1.05rem; }
   .ed-status:not(.is-error) { display: none; }
-  .ed-pv span, .ed-go span { display: none; }
-  .ed-pv, .ed-go { width: 42px; padding: 0; }
+  .ed-pv span, .ed-play span, .ed-go span { display: none; }
+  .ed-pv, .ed-play, .ed-go { width: 42px; padding: 0; }
   .ed-body { display: block; }
   .ed-rail { position: static; height: auto; overflow: visible; padding: 12px; display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
   .ed-game { flex: 1 1 100%; margin: 0; }
@@ -1204,3 +1206,195 @@ thead .g-name { z-index: 3; }
 .end-try p:first-child { font-weight: 600; }
 .pill-warn { background: var(--part-bg); color: #7A4A00; }
 .sd-skip { margin: 14px 0 0; background: var(--part-bg); color: #6B4A00; }
+
+/* Προβολέας: το παιχνίδι που διάλεξε ο εκπαιδευτικός, όλη η τάξη μαζί */
+.stg-own { display: flex; align-items: center; gap: 18px; margin: 22px 0 10px; padding: 18px 20px; border: 1px solid rgba(255, 255, 255, .22); border-radius: 16px; background: rgba(255, 255, 255, .07); }
+.stg-own-i { flex: none; }
+.stg-own-t { flex: 1; min-width: 0; }
+.stg-own-t h2 { margin: 0 0 4px; font-size: 1.2rem; color: #fff; }
+.stg-own-t p { margin: 0; color: rgba(255, 255, 255, .78); line-height: 1.45; }
+.stg-own .btn { flex: none; }
+.stg-or { margin: 30px 0 4px; font-size: 1.05rem; font-weight: 600; color: rgba(255, 255, 255, .86); }
+.stg-or-p { margin: 0 0 14px; color: rgba(255, 255, 255, .7); }
+@media (max-width: 640px) { .stg-own { flex-wrap: wrap; } .stg-own .btn { width: 100%; justify-content: center; } }
+.pl-own { display: inline-block; margin: 12px 0 0; padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(240, 180, 0, .55); background: rgba(255, 196, 0, .16); font-size: .9rem; font-weight: 600; }
+.lk-demo { margin: 0 0 12px; }
+
+/* ---------- Λέξεις στην εικόνα ---------- */
+.lb-stage { --ar: 1.4; --lbmaxh: 62vh; position: relative; width: min(100%, calc(var(--lbmaxh) * var(--ar))); margin: 0 auto; container-type: inline-size; border-radius: 12px; }
+.lb-img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
+.lb-num { display: inline-grid; place-items: center; flex: none; min-width: 1.55em; height: 1.55em; padding: 0 .3em; border-radius: 999px; background: var(--ink); color: #fff; font-size: .72em; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+/* επεξεργαστής */
+.lb-drop { min-height: 150px; flex-direction: column; text-align: center; padding: 18px; }
+.lb-drop b { display: block; font-size: 1.05rem; color: var(--ink); }
+.lb-ed-h { margin: 0 0 10px; }
+.lb-ed-stage { cursor: crosshair; }
+.lb-pin { position: absolute; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: .35em; max-width: 46%; padding: .28em .6em .28em .3em; border: 2px solid var(--brand); border-radius: 10px; background: rgba(255, 255, 255, .95); color: var(--ink); font: inherit; font-size: clamp(11px, 2cqw, 15px); font-weight: 600; line-height: 1.15; box-shadow: 0 2px 8px rgba(16, 24, 32, .18); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.lb-pin .lb-num { background: var(--brand); }
+.lb-pin-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-pin.is-empty { border-style: dashed; color: var(--muted); }
+.lb-pin.is-moving { cursor: grabbing; box-shadow: 0 8px 22px rgba(16, 24, 32, .3); z-index: 2; }
+.lb-pin:focus-visible { outline: 3px solid var(--focus, #1F5BD6); outline-offset: 2px; }
+.lb-ed-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 14px; font-size: .92rem; }
+.lb-ed-tools .btn { position: relative; cursor: pointer; }
+.lb-row .lb-num { margin-left: 4px; font-size: .85rem; }
+.lb-none { margin: 4px 0 0; }
+.lb-words { margin-top: 4px; }
+/* ο μαθητής */
+.lb-play { margin: 0 auto 14px; }
+.lb-pos { position: absolute; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: .25em; font-size: clamp(12px, 2.1cqw, 18px); z-index: 1; }
+.lb-pos .lb-num { box-shadow: 0 0 0 2px #fff; }
+.lb-pos .slot { position: relative; min-width: calc(var(--lbw, 8) * 1ch + 1.3em); min-height: 2.2em; margin: 0; padding: .12em; border-width: 2px; border-color: #6F7E77; background: rgba(255, 255, 255, .93); box-shadow: 0 1px 6px rgba(16, 24, 32, .16); font-size: inherit; }
+.lb-pos .slot::before { content: ''; position: absolute; inset: -8px; }
+.lb-pos .slot-empty { min-width: 0; }
+.lb-pos .chip-w.in-slot { min-height: 0; padding: .12em .45em; font-size: inherit; }
+.lb-pos .slot.is-filled { border-style: solid; border-color: var(--brand); background: #fff; }
+.lb-pos .slot.is-over { border-color: var(--brand); background: var(--brand-tint); }
+.lb-pos .slot.is-right { border-style: solid; border-color: var(--ok); background: #E6F6EE; }
+.lb-pos .slot.is-wrong { border-style: solid; border-color: var(--bad); background: #FDECEE; }
+.lb-fix { position: absolute; left: 50%; top: 100%; transform: translate(-50%, 4px); padding: .1em .45em; border-radius: 6px; background: var(--ok); color: #fff; font-weight: 700; font-size: .85em; white-space: nowrap; box-shadow: 0 1px 4px rgba(16, 24, 32, .2); z-index: 2; }
+/* κάρτες μελέτης */
+.lb-face { --lbmaxh: 38vh; display: block; margin: 12px auto 0; }
+.lb-mark { position: absolute; transform: translate(-50%, -50%); display: grid; place-items: center; min-width: 1.7em; height: 1.7em; padding: 0 .3em; border-radius: 999px; background: var(--ink); color: #fff; font-size: clamp(11px, 2.4cqw, 16px); font-weight: 700; box-shadow: 0 0 0 2px #fff; }
+@media (max-width: 600px) { .lb-stage { --lbmaxh: 52vh; } }
+.lb-ans { position: absolute; transform: translate(-50%, -50%); display: inline-flex; align-items: center; gap: .3em; padding: .2em .55em .2em .25em; border: 2px solid var(--ok); border-radius: 9px; background: #fff; color: var(--ink); font-size: clamp(11px, 2.2cqw, 16px); font-weight: 700; white-space: nowrap; box-shadow: 0 1px 6px rgba(16, 24, 32, .16); }
+.lb-ans .lb-num { background: var(--ok); }
+/* Κάρτες με εικόνα: ψηλότερη κάρτα, ώστε η εικόνα να χωράει μαζί με το κείμενο */
+.flash:has(img) { min-height: min(620px, 76vh); }
+.flash .q-img { max-height: 30vh; }
+.flash .lb-face { --lbmaxh: 40vh; margin-top: 4px; }
+.flash:has(.lb-face) .flash-text { font-size: clamp(1.05rem, .95rem + .8vw, 1.45rem); }
+
+/* ============================================================
+   ΑΠΟΤΕΛΕΣΜΑΤΑ: ΠΙΝΑΚΑΣ / RESULTS DASHBOARD
+   Δύο χρώματα δεδομένων: μπλε για ποσότητες, κόκκινο για «κάτω από 50%» (πάντα με τον αριθμό δίπλα).
+   Two data colors: blue for amounts, red for "below 50%" (always next to its number).
+   ============================================================ */
+.dz { --dz-1: #2F6FE4; --dz-1-hi: #5A8DEB; --dz-1-track: #D7E4FA; --dz-low: #C9283E; --dz-low-track: #FDE7EA; --dz-low-cell: #F9CDD4; --dz-low-ink: #7A1222; --dz-grid: var(--line); --dz-axis: var(--line-2); }
+.dz-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 4px 0 22px; }
+.dz-f { display: flex; flex-direction: column; gap: 5px; }
+.dz-fl { font-size: .84rem; font-weight: 600; color: var(--ink-2); }
+.dz-f .input { width: auto; min-width: 220px; min-height: 42px; }
+.dz-sync { margin: 0 0 10px; font-size: .88rem; color: var(--muted); }
+.dz-sync:empty { display: none; }
+.dz-body { transition: opacity .2s; }
+.dz-body.is-stale { opacity: .55; }
+.dz-tiles .tile-n { font-variant-numeric: normal; }
+.dz-card { padding: 20px 22px 22px; }
+.dz-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px 16px; margin-bottom: 16px; }
+.dz-head .h3 { margin: 0; }
+.dz-sub { margin: 4px 0 0; max-width: 62ch; font-size: .9rem; color: var(--muted); }
+.dz-seg .seg-c span { padding: .32em .9em; font-size: .86rem; }
+.dz-empty { margin: 0; color: var(--muted); }
+.dz-note { margin: 12px 0 0; font-size: .84rem; color: var(--muted); }
+.dz-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.dz-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 0 18px; }
+.dz-scroll { overflow-x: auto; }
+.dz-more { margin-top: 12px; }
+
+/* γράφημα δραστηριότητας / activity chart */
+.dz-act { position: relative; height: 210px; padding: 18px 0 26px 38px; }
+.dz-y { position: absolute; left: 0; top: 18px; bottom: 26px; width: 30px; }
+.dz-y span { position: absolute; right: 0; transform: translateY(50%); font-size: .75rem; line-height: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dz-plot { position: relative; height: 100%; }
+.dz-gl { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--dz-grid); }
+.dz-gl.is-base { border-top-color: var(--dz-axis); }
+.dz-bars { position: absolute; inset: 0; display: flex; }
+.dz-col { position: relative; flex: 1 1 0; min-width: 0; display: flex; align-items: flex-end; justify-content: center; border-radius: 6px; outline: none; }
+.dz-col > i { display: block; width: calc(100% - 2px); max-width: 24px; border-radius: 4px 4px 0 0; background: var(--dz-1); }
+.dz-col:hover > i, .dz-col:focus-visible > i { background: var(--dz-1-hi); }
+.dz-col:hover, .dz-col:focus-visible { background: rgba(47, 111, 228, .06); }
+.dz-col:focus-visible { box-shadow: inset 0 0 0 2px #1A5FD6; }
+.dz-cap { position: absolute; left: 50%; transform: translate(-50%, -5px); font-size: .78rem; font-weight: 700; line-height: 1; color: var(--ink-2); white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; }
+.dz-x { position: absolute; left: 38px; right: 0; bottom: 0; height: 18px; display: flex; }
+.dz-x span { flex: 1 1 0; min-width: 0; display: flex; justify-content: center; font-size: .75rem; color: var(--muted); white-space: nowrap; }
+.dz-x span.is-off { visibility: hidden; }
+
+/* αναδυόμενο / tooltip */
+.dz-tip { position: fixed; z-index: 80; display: flex; flex-direction: column; gap: 2px; max-width: 280px; padding: 8px 12px; border-radius: 10px; background: #fff; box-shadow: var(--shadow-pop); font-size: .85rem; color: var(--ink-2); pointer-events: none; }
+.dz-tip[hidden] { display: none; }
+.dz-tip strong { font-size: .97rem; color: var(--ink); }
+
+/* λίστες με μπάρες / lists with bars */
+.dz-list { list-style: none; margin: 0; padding: 0; }
+.dz-m { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 34%) 3.3em; align-items: center; gap: 6px 14px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.dz-m:last-child { border-bottom: 0; }
+.dz-m-n { display: flex; flex-direction: column; min-width: 0; padding: 2px 0; border: 0; background: none; font: inherit; text-align: left; color: inherit; text-decoration: none; cursor: pointer; border-radius: 6px; }
+.dz-m-n b { overflow: hidden; font-weight: 600; color: var(--ink); white-space: nowrap; text-overflow: ellipsis; }
+.dz-m-n b.dz-q { display: -webkit-box; white-space: normal; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.dz-m-n span { overflow: hidden; font-size: .84rem; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
+.dz-m-n:hover b { text-decoration: underline; text-underline-offset: 2px; }
+.dz-m-n:focus-visible { box-shadow: var(--focus); outline: none; }
+.dz-m-v, .dz-mc-v { font-weight: 700; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.dz-bar { display: block; height: 8px; overflow: hidden; border-radius: 999px; background: var(--dz-1-track); }
+.dz-bar > i { display: block; height: 100%; border-radius: 999px; background: var(--dz-1); }
+.dz-bar.is-low { background: var(--dz-low-track); }
+.dz-bar.is-low > i { background: var(--dz-low); }
+@media (max-width: 560px) {
+  .dz-m { grid-template-columns: minmax(0, 1fr) 3.3em; }
+  .dz-m .dz-bar { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* πίνακες / tables */
+.dz-table { width: 100%; border-collapse: collapse; font-size: .93rem; }
+.dz-table th, .dz-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.dz-table th:first-child, .dz-table td:first-child { padding-left: 0; }
+.dz-table thead th { font-size: .82rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.dz-table tbody tr:last-child > * { border-bottom: 0; }
+.dz-table tbody th { font-weight: 600; }
+.dz-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.dz-mc { display: grid; grid-template-columns: minmax(70px, 1fr) 3.2em; align-items: center; gap: 10px; min-width: 150px; }
+.dz-go { width: 1%; text-align: right !important; }
+
+/* η τάξη με μια ματιά / the class at a glance */
+.dz-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: -4px 0 14px; font-size: .84rem; color: var(--ink-2); }
+.dz-lg { display: inline-flex; align-items: center; gap: 7px; }
+.dz-sw { display: inline-grid; place-items: center; width: 24px; height: 18px; border-radius: 5px; font-size: .74rem; font-style: normal; color: var(--muted); }
+.dz-sw.is-low { background: var(--dz-low-cell); }
+.dz-sw.is-ok, .dz-sw.is-info { background: var(--soft-2); }
+.dz-sw.is-none { box-shadow: inset 0 0 0 1px var(--line-2); }
+.dz-hm-wrap { padding-bottom: 4px; border-radius: 8px; }
+.dz-hm-wrap:focus-visible { box-shadow: var(--focus); outline: none; }
+.dz-hm { border-collapse: separate; border-spacing: 3px; font-size: .88rem; }
+.dz-hm th, .dz-hm td { padding: 0; }
+.dz-hm-n { position: sticky; left: 0; z-index: 1; max-width: 190px; padding: 0 12px 0 2px !important; overflow: hidden; background: #fff; font-weight: 600; text-align: left; white-space: nowrap; text-overflow: ellipsis; }
+.dz-hm thead .dz-hm-n, .dz-hm tfoot .dz-hm-n { font-size: .8rem; color: var(--muted); }
+.dz-hm-n.is-sep { box-shadow: 0 -4px 0 -2px var(--line); }
+.dz-hm tr.is-hl .dz-hm-n { background: var(--sun-tint); border-radius: 6px; }
+.dz-off { margin-left: 2px; color: var(--muted); }
+.dz-hm-h { vertical-align: bottom; }
+.dz-hm-h a { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 2px; border-radius: 6px; color: var(--ink-2); text-decoration: none; }
+.dz-hm-h a:hover .dz-vt { color: var(--ink); text-decoration: underline; }
+.dz-hm-h a:focus-visible { box-shadow: var(--focus); outline: none; }
+.dz-vt { max-height: 11em; overflow: hidden; font-size: .82rem; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; writing-mode: vertical-rl; transform: rotate(180deg); }
+.dz-hd { font-size: .72rem; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.dz-hm-s { vertical-align: bottom; padding: 0 4px 6px !important; font-size: .8rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.dz-c { min-width: 44px; height: 34px; border-radius: 6px; background: var(--soft); text-align: center; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.dz-c.is-low { background: var(--dz-low-cell); color: var(--dz-low-ink); font-weight: 700; }
+.dz-c.is-none { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); font-weight: 500; }
+.dz-c.is-info { color: var(--muted); }
+.dz-c.dz-avg { min-width: 52px; background: transparent; }
+.dz-c.dz-avg.is-low { background: var(--dz-low-cell); }
+.dz-c.dz-pl { min-width: 48px; background: transparent; font-weight: 500; color: var(--ink-2); }
+.dz-hm tfoot td, .dz-hm tfoot th { height: 28px; }
+.dz-hm tfoot .dz-c { height: 28px; font-size: .82rem; }
+
+/* σύνδεσμοι / links */
+.dz-links { margin-top: 30px; }
+.dz-links-h { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; }
+.dz-links-h .h3 { margin: 0; }
+@media (max-width: 560px) {
+  .dz-cls thead { display: none; }
+  .dz-cls, .dz-cls tbody { display: block; }
+  .dz-cls tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "n b" "g g" "p p" "a a"; gap: 8px 12px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .dz-cls tr:last-child { border-bottom: 0; }
+  .dz-cls th, .dz-cls td { display: block; padding: 0 !important; border: 0 !important; text-align: left !important; }
+  .dz-cls th { grid-area: n; align-self: center; }
+  .dz-cls td:nth-child(2) { grid-area: g; display: flex; gap: 8px; }
+  .dz-cls td:nth-child(3) { grid-area: p; }
+  .dz-cls td:nth-child(4) { grid-area: a; }
+  .dz-cls td.dz-go { grid-area: b; width: auto; }
+  .dz-cls td[data-l]::before { content: attr(data-l); display: block; margin-bottom: 4px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .dz-cls td:nth-child(2)::before { display: inline; margin: 0; }
+}
+@media print { .dz-filters select { border: 0; padding: 0; background: none; } .dz-seg, .dz-more, .dz-go, .row-a { display: none !important; } }

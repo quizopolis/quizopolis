@@ -1,5 +1,6 @@
 /* Example games for the English version: every question type, English grammar, maths, science and geography. */
 import { rid } from './ui.js';
+import { PLANT_IMG } from './sample-art.js';
 
 const Q = (type, time, data) => Object.assign({ id: 'q' + rid(8), type, text: '', image: '', time, double: false, explain: '' }, data);
 
@@ -17,6 +18,7 @@ export function sampleGamesEn() {
         Q('fill', 30, { category: 'Maths', text: 'What is 0.5 × 8?', answers: ['4'] }),
         Q('dropdown', 45, { category: 'English', text: 'Choose the right form of the verb for each gap.', cloze: 'Yesterday I [wrote|write|will write] a letter to my grandma, and tomorrow I [will post|posted|post] it.' }),
         Q('drag', 45, { category: 'History', text: 'Drag each year into the right gap.', cloze: 'People first walked on the Moon in [1969]. The first modern Olympic Games were held in Athens in [1896].', extra: ['1914', '1945'] }),
+        Q('label', 120, { category: 'Science', text: 'Drag each word to the right part of the plant.', image: PLANT_IMG, labels: [{ id: 'l0', text: 'flower', x: 0.766, y: 0.173 }, { id: 'l1', text: 'leaf', x: 0.141, y: 0.568 }, { id: 'l2', text: 'stem', x: 0.766, y: 0.65 }, { id: 'l3', text: 'root', x: 0.766, y: 0.9 }], extra: ['fruit'] }),
         Q('underline', 45, { category: 'History', text: 'Underline in the text when the Parthenon was built.', passage: 'The Parthenon is a temple of the goddess Athena on the Acropolis of Athens. It was built in the [5th century BC], in the age of Pericles.' }),
         Q('match', 60, { category: 'Geography', text: 'Match each city with its country.', pairs: [{ a: 'Paris', b: 'France' }, { a: 'Madrid', b: 'Spain' }, { a: 'Lisbon', b: 'Portugal' }, { a: 'Dublin', b: 'Ireland' }] }),
         Q('reorder', 60, { category: 'Maths', text: 'Put the numbers in order, from smallest to largest.', items: ['0.09', '0.4', '1.5', '2'] }),

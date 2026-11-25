@@ -191,7 +191,19 @@ export function create(opts = {}) {
     async deleteClass(id) { const all = col('classes'); if (all[id] && owned(all[id])) { delete all[id]; write('classes', all); } },
 
     /* ---------- παιχνίδια σε εξέλιξη (sessions) ---------- */
-    async listSessions() { const u = me(); return delay(Object.values(col('sessions')).filter((s) => s.owner === u.uid).map(sessionMeta)); },
+    async listSessions() {
+      const u = me();
+      const st = read('stats', {});
+      return delay(Object.values(col('sessions')).filter((s) => s.owner === u.uid).map((s) => Object.assign(sessionMeta(s), { stats: st[s.id] || null })));
+    },
+    async saveSessionStats(id, stats) {
+      const s = col('sessions')[id];
+      if (!s || !owned(s)) return;
+      const all = read('stats', {});
+      all[id] = clone(stats);
+      write('stats', all);
+    },
+    dropCache() { /* τίποτα στη μνήμη / nothing cached */ },
     async createSession(data) {
       const u = me();
       const id = 's' + rid(16);
@@ -214,6 +226,8 @@ export function create(opts = {}) {
       delete sessions[id];
       write('sessions', sessions);
       keysWith('p:' + id + ':').forEach(remove);
+      const st = read('stats', {});
+      if (st[id]) { delete st[id]; write('stats', st); }
     },
     async getSession(id) { const s = col('sessions')[id]; return delay(s ? clone(s) : null); },
     watchSession(id, cb) {
@@ -255,6 +269,7 @@ export function create(opts = {}) {
       write(key, merge(cur, patch));
     },
     async listPlayers(sid) { return delay(players(sid)); },
+    async countPlayers(sid) { const all = players(sid); return delay({ joined: all.length, done: all.filter((x) => x.done).length }); },
     watchPlayers(sid, cb) {
       let last = null;
       const emit = () => {

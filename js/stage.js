@@ -11,6 +11,7 @@ import { ladder, havens, euro, hintFor, audienceFor } from './games/millionaire.
 import { buildBoard, VALUES } from './games/jeopardy.js';
 import { __ } from './i18n.js';
 import { stageModeOf } from './choose.js';
+import { playOwn, deviceModeOf } from './playown.js';
 import { gameIcon } from './gicons.js';
 
 const PREF = 'qz:stage';
@@ -44,14 +45,24 @@ export function viewStage(gameId, ctx) {
     // Την πρώτη φορά προτείνεται το παιχνίδι που διάλεξες για αυτές τις ερωτήσεις· μετά, το τελευταίο που παίξατε.
     const mode = (first && stageModeOf(G.mode)) || (STAGE_MODES.includes(pref.mode) ? pref.mode : 'millionaire');
     first = false;
+    // Το παιχνίδι που διάλεξε ο εκπαιδευτικός, αν παίζεται από συσκευές (π.χ. αγώνας δρόμου): παίζεται κι αυτό στην οθόνη, όλη η τάξη μαζί.
+    const own = deviceModeOf(G.mode);
     const n = clamp(Number(pref.teams) || 2, 1, 6);
     const names = Array.isArray(pref.names) ? pref.names : [];
     el.className = 'v-stage';
     el.innerHTML = `<div class="stg-setup"><div class="stg-in">
       <p class="crumbs"><a href="#/t">${ICON.back}${__('Τα παιχνίδια μου')}</a></p>
       <h1 class="stg-h">${__('Στον προβολέα:')} ${esc(G.title)}</h1>
-      <p class="stg-lead">${__('Ένα παιχνίδι για όλη την τάξη, στην οθόνη. Οι ομάδες απαντούν προφορικά. Εσύ περνάς την απάντηση στην οθόνη ή πατάς «Σωστά» ή «Λάθος». Δεν αποθηκεύεται τίποτα.')}</p>
+      <p class="stg-lead">${own ? __('Παίξτε στην οθόνη της τάξης, χωρίς συσκευές για τα παιδιά. Δεν αποθηκεύεται τίποτα.') : __('Ένα παιχνίδι για όλη την τάξη, στην οθόνη. Οι ομάδες απαντούν προφορικά. Εσύ περνάς την απάντηση στην οθόνη ή πατάς «Σωστά» ή «Λάθος». Δεν αποθηκεύεται τίποτα.')}</p>
       ${qs.length < 3 ? ('<p class="banner banner-bad">' + __('Χρειάζονται τουλάχιστον 3 ερωτήσεις με σωστή απάντηση. Οι δημοσκοπήσεις και οι ανοιχτές ερωτήσεις δεν μετράνε.') + '</p>') : ''}
+      ${own ? `<section class="stg-own" aria-labelledby="stg-own-h">
+        <span class="stg-own-i" aria-hidden="true">${gameIcon(own, { size: 48 })}</span>
+        <div class="stg-own-t"><h2 id="stg-own-h">${esc(MODES[own].label)}, ${__('όλη η τάξη μαζί')}</h2>
+          <p>${__('Παίζεται στην οθόνη σαν ένας παίκτης: η τάξη λέει την απάντηση και εσύ την πατάς. Δεν αποθηκεύεται τίποτα.')}</p></div>
+        <button class="btn btn-sun btn-lg" type="button" data-own>${ICON.play}${__('Ξεκίνα')}</button>
+      </section>
+      <h2 class="stg-or">${__('Ή ένα παιχνίδι με ομάδες, με τις ίδιες ερωτήσεις')}</h2>
+      <p class="stg-or-p">${__('Οι ομάδες απαντούν προφορικά. Εσύ περνάς την απάντηση στην οθόνη ή πατάς «Σωστά» ή «Λάθος».')}</p>` : ''}
       <form class="stg-form" novalidate>
         <fieldset class="stg-modes"><legend class="label-light">${__('Παιχνίδι')}</legend>
           ${STAGE_MODES.map((k) => `<label class="stg-mode"><input type="radio" name="mode" value="${k}" ${k === mode ? 'checked' : ''}><span class="stg-mode-in"><span class="stg-mode-i" aria-hidden="true">${gameIcon(k, { size: 44 })}</span><b>${esc(MODES[k].label)}</b><span>${esc(STAGE_DESC[k])}</span></span></label>`).join('')}
@@ -64,6 +75,11 @@ export function viewStage(gameId, ctx) {
         <p class="stg-note">${__('Συμβουλή: πάτα «Πλήρης οθόνη» μόλις ξεκινήσει το παιχνίδι.')}</p>
       </form></div></div>`;
     const form = el.querySelector('form');
+    const ownBtn = el.querySelector('[data-own]');
+    if (ownBtn) ownBtn.addEventListener('click', () => {
+      ownBtn.disabled = true;
+      playOwn(G, ctx, { mode: own, name: __('Η τάξη'), back: '/t/stage/' + G.id }).catch((er) => toast(errText(er), 'error')).finally(() => { ownBtn.disabled = false; });
+    });
     let count = n;
     const drawNames = () => {
       const box = el.querySelector('.stg-names');

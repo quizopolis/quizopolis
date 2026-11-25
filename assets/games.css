@@ -478,3 +478,8 @@
 @media (max-width: 860px) { .stg-modes { grid-template-columns: 1fr; } .stg-mil { grid-template-columns: 1fr; } }
 :fullscreen .stg, .stg:fullscreen { overflow-y: auto; }
 .stg-mode-i .gi { margin-bottom: 6px; }
+
+/* Λέξεις στην εικόνα μέσα στα παιχνίδια και στον προβολέα */
+.gq .lb-stage { --lbmaxh: 38vh; }
+.stg .lb-stage { --lbmaxh: 54vh; }
+.gm-dark .lb-img, .v-stage .lb-img { border-color: rgba(255, 255, 255, .25); }

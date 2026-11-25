@@ -26,6 +26,7 @@ const GLYPH = {
   show: '<rect x="18" y="6.5" width="12" height="20.5" rx="6" fill="#fff"/><path d="M12.5 22a11.5 11.5 0 0 0 23 0" stroke="#fff" stroke-width="2.8" fill="none" stroke-linecap="round"/><path d="M24 33.5v6M17.5 40.5h13" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/>',
   race: '<path d="M12.5 8 V41" stroke="#fff" stroke-width="2.8" stroke-linecap="round"/><rect x="14" y="10" width="24" height="16" rx="1.5" fill="#fff"/>' + CHECKER,
   swim: '<circle cx="31" cy="11.5" r="3.8" fill="#fff"/>' + WAVE(21, 1) + WAVE(30, 0.6) + WAVE(39, 0.35),
+  label: '<rect x="5.5" y="8.5" width="37" height="31" rx="5" fill="#fff" opacity=".5"/><circle cx="14" cy="17" r="3.4" fill="#fff"/><path d="M8.5 35.5l9.5-10.5 6.5 6.5 5-5 10 9z" fill="#fff"/><rect x="22.5" y="12" width="20" height="9.5" rx="2.4" fill="#fff"/><rect x="26" y="15.6" width="13" height="2.4" rx="1.2" fill="{c}" opacity=".6"/>',
   shooting: '<circle cx="24" cy="24" r="16" fill="#fff"/><circle cx="24" cy="24" r="11" fill="{c}" opacity=".85"/><circle cx="24" cy="24" r="6.5" fill="#fff"/><circle cx="24" cy="24" r="2.6" fill="{c}"/>',
   penalty: '<circle cx="24" cy="24" r="16" fill="#fff"/><path d="M24 17.2l6.4 4.6-2.4 7.5h-8l-2.4-7.5z" fill="{c}"/><path d="M24 17.2V9.2M30.4 21.8l7.6-2.6M28 29.3l4.6 6.6M20 29.3l-4.6 6.6M17.6 21.8l-7.6-2.6" stroke="{c}" stroke-width="1.8" stroke-linecap="round" opacity=".7"/>',
   escape: '<circle cx="16.5" cy="24" r="8.2" fill="none" stroke="#fff" stroke-width="4.2"/><path d="M24.5 24H41.5M35 24v6.5M40.2 24v5" stroke="#fff" stroke-width="4.2" stroke-linecap="round"/>',
@@ -37,7 +38,7 @@ const GLYPH = {
 export const GAME_COLOR = {
   classic: '#0F8A5F', team: '#2E86DE', mastery: '#0E9488', test: '#5C6B82', flashcards: '#E8A20E',
   millionaire: '#4338CA', jeopardy: '#1F5BD6', show: '#C0398F', race: '#EE6A2C', swim: '#0EA5C6',
-  shooting: '#DC3F4A', penalty: '#4FA12E', escape: '#8B4FD8', snakes: '#D98A1A', picture: '#E05293', free: '#8A94A3'
+  shooting: '#DC3F4A', penalty: '#4FA12E', escape: '#8B4FD8', snakes: '#D98A1A', picture: '#E05293', label: '#76891C', free: '#8A94A3'
 };
 export const STAGE_BG = '#1B2350';
 

@@ -1,5 +1,5 @@
 /* Κοινά εργαλεία για τα παιχνίδια επανάληψης: πλαίσιο, ερώτηση, καταγραφή απαντήσεων, αποτέλεσμα. */
-import { esc, num, shuffle, ICON, pct } from '../ui.js';
+import { esc, num, shuffle, ICON, pct, exitHref } from '../ui.js';
 import { TYPES, grade, isScored } from '../qtypes.js';
 import { MODES, unitOf } from '../modes.js';
 import { sfx, isMuted, setMuted } from './sfx.js';
@@ -82,7 +82,7 @@ export function makeKit(env) {
     shell(extraCls = '') {
       el.innerHTML = `<div class="gm gm-${mode} ${extraCls}">
         <div class="gm-bar">
-          <a class="g-btn" href="#/" aria-label="${__('Έξοδος')}">${ICON.back}<span class="hide-sm">${__('Έξοδος')}</span></a>
+          <a class="g-btn" href="${exitHref(S)}" aria-label="${__('Έξοδος')}">${ICON.back}<span class="hide-sm">${__('Έξοδος')}</span></a>
           <span class="gm-title"><span aria-hidden="true">${kit.icon}</span> <span class="hide-sm">${esc(kit.label)}</span></span>
           <span class="gm-status" data-status aria-live="polite"></span>
           <span class="gm-score"><span data-score>0</span> ${esc(kit.unit || __('πόντοι'))}</span>

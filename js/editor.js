@@ -4,7 +4,8 @@ import { DB } from './store.js';
 import { TYPES, TYPE_ORDER, newQuestion, validateQuestion, tidyQuestion, grade, isScored } from './qtypes.js';
 import { startDialog } from './teacher.js';
 import { __, LANG } from './i18n.js';
-import { choiceOf, readiness, pickDialog, NEED } from './choose.js';
+import { choiceOf, readiness, pickDialog, NEED, usesQuizExtras } from './choose.js';
+import { playOwn, playProblem } from './playown.js';
 import { gameIcon, tint } from './gicons.js';
 
 const TIMES = [0, 10, 20, 30, 45, 60, 90, 120, 180, 300];
@@ -207,14 +208,18 @@ export function viewEditor(id, ctx, choice) {
   window.addEventListener('beforeunload', onUnload);
 
   (async () => {
+    await null; // πρώτα να οριστούν όλα τα παρακάτω (render, railText κ.λπ.), μετά η πρώτη σχεδίαση
     if (id) {
       try { G = await DB.getGame(id); } catch (e) { root.innerHTML = `<div class="ed-msg"><div class="banner banner-bad">${esc(errText(e))}</div></div>`; return; }
       if (!G) { root.innerHTML = ('<div class="ed-msg"><div class="empty"><p class="empty-t">' + __('Το παιχνίδι δεν βρέθηκε.') + '</p><p><a class="btn btn-line" href="#/t">' + __('Στα παιχνίδια μου') + '</a></p></div></div>'); return; }
       G.questions = G.questions || [];
     } else {
+      const first = choice === 'label' ? 'label' : '';
+      if (first) choice = 'classic';
       if (choice !== 'free' && !choiceOf(choice)) { ctx.go('/t/new', true); return; }
       const c = choiceOf(choice);
-      G = { title: '', description: '', grades: [], subject: '', mode: c ? c.id : '', cover: { color: COVERS[Math.floor(Math.random() * COVERS.length)], emoji: '🧠' }, questions: [] };
+      G = { title: '', description: '', grades: [], subject: '', mode: c ? c.id : '', cover: { color: COVERS[Math.floor(Math.random() * COVERS.length)], emoji: first ? '🏷️' : '🧠' }, questions: [] };
+      if (first) G.questions.push(newQuestion(first, 'q' + rid(8)));
     }
     if (!alive) return;
     G.cover = G.cover || { color: COVERS[0], emoji: '🧠' };
@@ -233,6 +238,7 @@ export function viewEditor(id, ctx, choice) {
         <div class="ed-tt"><label class="sr" for="g-title">${__('Τίτλος παιχνιδιού')}</label><input class="ed-title" id="g-title" maxlength="90" placeholder="${__('Τίτλος παιχνιδιού')}" value="${esc(G.title)}" data-g="title" autocomplete="off"><small class="ed-sub" data-sub></small></div>
         <span class="ed-status" data-status aria-live="polite"></span>
         <button type="button" class="btn btn-line ed-pv" data-act="preview" title="${__('Δες την ερώτηση όπως θα τη δουν τα παιδιά')}">${ICON.eye}<span>${__('Προεπισκόπηση')}</span></button>
+        <button type="button" class="btn btn-line ed-play" data-playnow ${ch && ch.stage ? 'hidden' : ''} title="${__('Παίξε όλο το παιχνίδι όπως τα παιδιά, για δοκιμή ή με όλη την τάξη στην οθόνη. Δεν αποθηκεύεται τίποτα.')}">${ICON.play}<span>${__('Παίξε')}</span></button>
         <button type="button" class="btn btn-primary ed-go" data-saveplay>${ch && ch.stage ? ICON.screen + '<span>' + __('Στον προβολέα') + '</span>' : ICON.send + '<span>' + __('Στείλε στην τάξη') + '</span>'}</button>
       </header>
       <div class="ed-body">
@@ -304,9 +310,7 @@ export function viewEditor(id, ctx, choice) {
     box.className = 'ready' + (r.ok ? ' is-ok' : '');
     box.innerHTML = `<b>${r.ok ? ICON.check : ''}${esc(head)}</b><span>${esc(text)}</span>${ch && ch.tip ? `<small>${esc(ch.tip)}</small>` : ''}`;
   }
-  async function changeGame() {
-    const v = await pickDialog(G.mode);
-    if (!v || v === G.mode) return;
+  function applyGame(v) {
     G.mode = v;
     markDirty();
     drawGame();
@@ -314,9 +318,37 @@ export function viewEditor(id, ctx, choice) {
     const go = root.querySelector('[data-saveplay]');
     const ch = choiceOf(v);
     go.innerHTML = ch && ch.stage ? ICON.screen + '<span>' + __('Στον προβολέα') + '</span>' : ICON.send + '<span>' + __('Στείλε στην τάξη') + '</span>';
-    if (!G.questions.length) drawCanvas();
+    const pl = root.querySelector('[data-playnow]');
+    if (pl) pl.hidden = !!(ch && ch.stage);
+    // Χρόνος και διπλοί πόντοι φαίνονται μόνο όπου μετράνε: ξανασχεδιάζονται η ερώτηση και οι ρυθμίσεις.
+    drawCanvas();
+    drawPanel();
+  }
+  async function changeGame() {
+    const v = await pickDialog(G.mode);
+    if (!v || v === G.mode) return;
+    applyGame(v);
     const t = root.querySelector('[data-change-game]');
     if (t) t.focus();
+  }
+  /* «Παίξε»: το παιχνίδι παίζεται αμέσως, όπως θα το έπαιζαν τα παιδιά. Δεν αποθηκεύεται τίποτα. */
+  async function playNow() {
+    let ch = choiceOf(G.mode);
+    if (!ch) {
+      const v = await pickDialog(G.mode);
+      if (!v) return;
+      applyGame(v);
+      ch = choiceOf(v);
+    }
+    if (ch.stage) { sendToClass(); return; }
+    const problem = playProblem(G.questions, ch.base);
+    if (problem) { tried = true; showErrors(true); toast(problem, 'error'); return; }
+    const btn = root.querySelector('[data-playnow]');
+    btn.disabled = true;
+    try {
+      if (dirty() && worth()) await save();
+      await playOwn(G, ctx, { mode: ch.base, back: G.id ? '/t/edit/' + G.id : '/t' });
+    } catch (e) { toast(errText(e), 'error'); } finally { btn.disabled = false; }
   }
 
   function sizeMeter() {
@@ -356,11 +388,11 @@ export function viewEditor(id, ctx, choice) {
   /* ---------- η ερώτηση ---------- */
   function cardHtml(q, i) {
     const t = TYPES[q.type];
-    const clozeType = q.type === 'dropdown' || q.type === 'drag';
+    const clozeType = q.type === 'dropdown' || q.type === 'drag' || q.type === 'label';
     const qid = esc(q.id);
     return `<article class="qe" data-q="${qid}" id="qe-${qid}">
       <div class="qe-head"><span class="qe-type-l">${t.icon}<span>${esc(t.label)}</span></span>
-        <label class="qe-time" title="${__('Χρόνος')}">${ICON.clock}<span class="sr">${__('Χρόνος για την ερώτηση')} ${i + 1}</span><select data-c="time">${TIMES.map((s) => `<option value="${s}" ${Number(q.time) === s ? 'selected' : ''}>${timeLabel(s)}</option>`).join('')}</select></label>
+        ${usesQuizExtras(G.mode) ? `<label class="qe-time" title="${__('Χρόνος')}">${ICON.clock}<span class="sr">${__('Χρόνος για την ερώτηση')} ${i + 1}</span><select data-c="time">${TIMES.map((s) => `<option value="${s}" ${Number(q.time) === s ? 'selected' : ''}>${timeLabel(s)}</option>`).join('')}</select></label>` : ''}
         <span class="qe-tools">
           <button type="button" class="icon-btn" data-act="up" ${i === 0 ? 'disabled' : ''} title="${__('Πάνω')}" aria-label="${__('Μετακίνηση της ερώτησης {0} πάνω', i + 1)}">${ICON.up}</button>
           <button type="button" class="icon-btn" data-act="down" ${i === G.questions.length - 1 ? 'disabled' : ''} title="${__('Κάτω')}" aria-label="${__('Μετακίνηση της ερώτησης {0} κάτω', i + 1)}">${ICON.down}</button>
@@ -369,8 +401,8 @@ export function viewEditor(id, ctx, choice) {
         </span></div>
       <label class="sr" for="qt-${qid}">${clozeType ? __('Οδηγία') : __('Ερώτηση')} ${i + 1}</label>
       <textarea class="qe-text" id="qt-${qid}" rows="1" maxlength="600" data-c="text" placeholder="${clozeType ? __('Οδηγία, π.χ. Διάλεξε τη σωστή λέξη σε κάθε κενό.') : __('Γράψε την ερώτηση')}">${esc(q.text)}</textarea>
-      <div class="qe-img">${q.image ? `<img src="${esc(q.image)}" alt="${__('Η εικόνα της ερώτησης')} ${i + 1}"><button type="button" class="btn btn-sm btn-line" data-act="noimg">${ICON.x}${__('Αφαίρεση εικόνας')}</button>`
-        : `<label class="qe-drop">${ICON.image}<span>${__('Πρόσθεσε εικόνα')} <span class="muted">${__('(προαιρετικά)')}</span></span><input type="file" accept="image/*" data-c="image" class="sr"></label>`}</div>
+      ${t.ownImage ? '' : `<div class="qe-img">${q.image ? `<img src="${esc(q.image)}" alt="${__('Η εικόνα της ερώτησης')} ${i + 1}"><button type="button" class="btn btn-sm btn-line" data-act="noimg">${ICON.x}${__('Αφαίρεση εικόνας')}</button>`
+        : `<label class="qe-drop">${ICON.image}<span>${__('Πρόσθεσε εικόνα')} <span class="muted">${__('(προαιρετικά)')}</span></span><input type="file" accept="image/*" data-c="image" class="sr"></label>`}</div>`}
       <div class="qe-type" data-type-slot></div>
       <ul class="qe-errs" role="alert" hidden></ul>
     </article>`;
@@ -416,7 +448,7 @@ export function viewEditor(id, ctx, choice) {
     const qid = q ? esc(q.id) : '';
     box.innerHTML = `<div class="ready" data-ready aria-live="polite"></div>
       ${q ? `<section class="pn" data-q="${qid}" aria-labelledby="pn-q"><h3 class="pn-h" id="pn-q">${__('Αυτή η ερώτηση')}</h3>
-        ${t.scored ? `<label class="pn-row"><span>${__('Διπλοί πόντοι')}</span><input type="checkbox" class="tog" data-c="double" ${q.double ? 'checked' : ''}></label>` : ''}
+        ${t.scored && usesQuizExtras(G.mode) ? `<label class="pn-row"><span>${__('Διπλοί πόντοι')}</span><input type="checkbox" class="tog" data-c="double" ${q.double ? 'checked' : ''}></label>` : ''}
         <div class="field"><label class="label" for="qc-${qid}">${__('Θεματική')} <span class="muted">${__('(γίνεται στήλη στο Jeopardy)')}</span></label><input class="input" id="qc-${qid}" list="ed-cats" maxlength="40" data-c="category" value="${esc(q.category || '')}" placeholder="${__('π.χ. Γεωγραφία')}"></div>
         <div class="field"><label class="label" for="qx-${qid}">${__('Εξήγηση μετά την απάντηση')}</label><textarea class="input" id="qx-${qid}" rows="3" maxlength="400" data-c="explain" placeholder="${__('Τη βλέπουν οι μαθητές αφού απαντήσουν.')}">${esc(q.explain || '')}</textarea></div>
       </section>` : ''}
@@ -454,7 +486,7 @@ export function viewEditor(id, ctx, choice) {
     if (G.questions.length >= MAX_Q) { toast(`${__('Ένα παιχνίδι έχει έως {0} ερωτήσεις.', MAX_Q)}`, 'error'); return; }
     const at = qById(cur);
     const q = newQuestion(type, 'q' + rid(8));
-    if (at) q.time = at.time;
+    if (at) q.time = TYPES[type].ownImage ? Math.max(Number(at.time) || 0, q.time) : at.time;
     const i = at ? G.questions.indexOf(at) + 1 : G.questions.length;
     G.questions.splice(i, 0, q);
     markDirty();
@@ -487,7 +519,9 @@ export function viewEditor(id, ctx, choice) {
   });
   async function setImage(q, file) {
     const b = busy(__('Ετοιμάζεται η εικόνα…'));
-    try { q.image = await readImage(file); markDirty(); drawCanvas(); } catch (er) { toast(errText(er), 'error'); }
+    // Στις «Λέξεις στην εικόνα» η εικόνα είναι όλη η ερώτηση: κρατάμε μεγαλύτερο μέγεθος για να διαβάζεται.
+    const big = TYPES[q.type] && TYPES[q.type].ownImage;
+    try { q.image = await readImage(file, big ? 1280 : 960, big ? 300000 : 140000); markDirty(); drawCanvas(); } catch (er) { toast(errText(er), 'error'); }
     b.close();
   }
   root.addEventListener('dragover', (e) => {
@@ -514,6 +548,7 @@ export function viewEditor(id, ctx, choice) {
     if (e.target.closest('[data-change-game]')) { changeGame(); return; }
     if (e.target.closest('[data-cover]')) { coverDialog(); return; }
     if (e.target.closest('[data-saveplay]')) { sendToClass(); return; }
+    if (e.target.closest('[data-playnow]')) { playNow(); return; }
     if (e.target.closest('[data-retry-save]')) { save(); return; }
     const act = e.target.closest('[data-act]');
     if (!act) return;

@@ -22,13 +22,13 @@ const MESSAGES = {
   'auth/admin-restricted-operation': __('Στο Firebase δεν έχει ενεργοποιηθεί η ανώνυμη σύνδεση για τους μαθητές (Authentication → Sign-in method → Anonymous).'),
   'auth/unauthorized-domain': __('Η διεύθυνση της πλατφόρμας δεν έχει προστεθεί στα Authorized domains του Firebase. Δες τον οδηγό εγκατάστασης.'),
   'permission-denied': __('Δεν επιτρέπεται αυτή η ενέργεια. Αν μόλις έστησες την πλατφόρμα, έλεγξε ότι επικόλλησες τους κανόνες ασφαλείας (firestore.rules).'),
-  'resource-exhausted': __('Εξαντλήθηκε το δωρεάν όριο της ημέρας στο Firebase. Θα ξαναλειτουργήσει αύριο.'),
+  'resource-exhausted': __('Εξαντλήθηκε το δωρεάν όριο της ημέρας στο Firebase. Θα ξαναλειτουργήσει όταν μηδενιστεί ο μετρητής, γύρω στις 10 το πρωί (ώρα Ελλάδας).'),
   'unavailable': __('Δεν υπάρχει σύνδεση με τη βάση. Έλεγξε το διαδίκτυο και δοκίμασε ξανά.'),
   'failed-precondition': __('Η βάση Firestore δεν έχει δημιουργηθεί ακόμη στο έργο Firebase. Δες τον οδηγό εγκατάστασης.'),
   'not-found': __('Η βάση Firestore δεν βρέθηκε στο έργο Firebase. Έλεγξε ότι τη δημιούργησες (βήμα 3 του οδηγού).'),
   'auth/invalid-api-key': __('Το apiKey στο config.js δεν είναι σωστό. Αντέγραψέ το ξανά από το Firebase (βήμα 5 του οδηγού).'),
   'auth/api-key-not-valid.-please-pass-a-valid-api-key.': __('Το apiKey στο config.js δεν είναι σωστό. Αντέγραψέ το ξανά από το Firebase (βήμα 5 του οδηγού).'),
-  'auth/configuration-not-found': __('Στο Firebase δεν έχει ενεργοποιηθεί το Authentication (Build → Authentication → Get started). Δες το βήμα 2 του οδηγού.'),
+  'auth/configuration-not-found': __('Στο Firebase δεν έχει ενεργοποιηθεί το Authentication (Security → Authentication → Get started). Δες το βήμα 2 του οδηγού.'),
   'auth/missing-email': __('Γράψε το email σου.'),
   'auth/user-disabled': __('Αυτός ο λογαριασμός έχει απενεργοποιηθεί.'),
   'unauthenticated': __('Χρειάζεται ξανά σύνδεση. Ανανέωσε τη σελίδα.'),
@@ -64,11 +64,13 @@ export async function create(config) {
   try { db = F.initializeFirestore(app, { ignoreUndefinedProperties: true }); } catch (e) { db = F.getFirestore(app); }
 
   let user = null;
+  const lists = new Map();
   let resolveReady;
   const ready = new Promise((r) => { resolveReady = r; });
   const authCbs = new Set();
   const toUser = (u) => (u ? { uid: u.uid, email: u.email || '', name: u.displayName || (u.email ? u.email.split('@')[0] : ''), isTeacher: !u.isAnonymous } : null);
   A.onAuthStateChanged(auth, (u) => {
+    if (!u || !user || u.uid !== user.uid) lists.clear();
     user = toUser(u);
     resolveReady();
     authCbs.forEach((fn) => fn(user && user.isTeacher ? user : null));
@@ -81,10 +83,27 @@ export async function create(config) {
   const d = (...path) => F.doc(db, ...path);
   const c = (...path) => F.collection(db, ...path);
   const data = (snap) => (snap.exists() ? Object.assign({ id: snap.id }, snap.data()) : null);
-  const mine = (name) => guard(F.getDocs(F.query(c(name), F.where('owner', '==', me().uid))))
-    .then((qs) => qs.docs.map((s) => Object.assign({ id: s.id }, s.data())));
+  // Οι λίστες του εκπαιδευτικού (παιχνίδια, τάξεις, σύνδεσμοι) κρατιούνται λίγα λεπτά στη μνήμη.
+  // Έτσι το πήγαινε-έλα ανάμεσα στις σελίδες δεν ξαναδιαβάζει κάθε φορά όλα τα έγγραφα
+  // (το δωρεάν όριο του Firebase μετράει αναγνώσεις). Κάθε αλλαγή από αυτή τη συσκευή τις ανανεώνει.
+  // The teacher's lists are kept in memory for a few minutes, so moving between pages
+  // does not re-read every document (Firebase's free quota counts reads). Any change made here refreshes them.
+  const LIST_TTL = 3 * 60 * 1000;
+  const forget = () => lists.clear();
+  const copies = (arr) => arr.map((o) => Object.assign({}, o));
+  const mine = (name) => {
+    const uid = me().uid;
+    const hit = lists.get(name);
+    if (hit && hit.uid === uid && Date.now() - hit.at < LIST_TTL) return hit.p.then(copies);
+    const p = guard(F.getDocs(F.query(c(name), F.where('owner', '==', uid))))
+      .then((qs) => qs.docs.map((s) => Object.assign({ id: s.id }, s.data())));
+    const entry = { at: Date.now(), uid, p };
+    lists.set(name, entry);
+    p.catch(() => { if (lists.get(name) === entry) lists.delete(name); });
+    return p.then(copies);
+  };
 
-  return {
+  const api = {
     mode: 'firebase',
 
     onAuth(fn) {
@@ -200,6 +219,15 @@ export async function create(config) {
       batch.delete(d('sessionIndex', id));
       await guard(batch.commit());
     },
+    // Στατιστικά για τον πίνακας «Αποτελέσματα»: μία εγγραφή στην κάρτα της λίστας, ενημερώνει και τη μνήμη.
+    // Stats for the Results dashboard: one write to the list card, and the in-memory list is patched too.
+    async saveSessionStats(id, stats) {
+      await guard(F.setDoc(d('sessionIndex', id), { stats }, { merge: true }));
+      const hit = lists.get('sessionIndex');
+      if (hit) hit.p = hit.p.then((arr) => arr.map((o) => (o.id === id ? Object.assign({}, o, { stats }) : o)));
+    },
+    // «Ανανέωση»: οι λίστες ξαναδιαβάζονται την επόμενη φορά. / "Refresh": the lists are read again next time.
+    dropCache() { forget(); },
     async getSession(id) { return data(await guard(F.getDoc(d('sessions', id)))); },
     watchSession(id, cb, onErr) {
       return F.onSnapshot(d('sessions', id), (snap) => cb(data(snap)), (e) => { if (onErr) onErr(wrap(e)); });
@@ -229,8 +257,24 @@ export async function create(config) {
         (qs) => cb(qs.docs.map((s) => Object.assign({ uid: s.id }, s.data()))),
         (e) => { if (onErr) onErr(wrap(e)); });
     },
+    // Πόσα παιδιά μπήκαν και πόσα τελείωσαν: δύο μετρήσεις (2 αναγνώσεις) αντί να διαβαστούν όλοι οι παίκτες.
+    // How many children joined and finished: two counts (2 reads) instead of reading every player.
+    async countPlayers(sid) {
+      const col = c('sessions', sid, 'players');
+      const [all, done] = await Promise.all([
+        guard(F.getCountFromServer(col)),
+        guard(F.getCountFromServer(F.query(col, F.where('done', '==', true))))
+      ]);
+      return { joined: all.data().count, done: done.data().count };
+    },
     async removePlayer(sid, uid) { await guard(F.deleteDoc(d('sessions', sid, 'players', uid))); },
 
     canBots: false
   };
+  // Μετά από κάθε αλλαγή οι λίστες ξαναδιαβάζονται. / After any change the lists are read again.
+  ['signUp', 'signIn', 'signOut', 'saveGame', 'deleteGame', 'saveClass', 'deleteClass', 'createSession', 'updateSession', 'deleteSession'].forEach((k) => {
+    const fn = api[k];
+    api[k] = async (...args) => { forget(); try { return await fn(...args); } finally { forget(); } };
+  });
+  return api;
 }

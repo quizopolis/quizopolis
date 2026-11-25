@@ -10,7 +10,7 @@
   - sample(q, good): απάντηση για εικονικούς μαθητές
   - summary(q, answers): ανάλυση για την αναφορά
 */
-import { esc, norm, shuffle, textOn, shade, ICON, pct } from './ui.js';
+import { esc, norm, shuffle, textOn, shade, ICON, pct, toast } from './ui.js';
 import { __ } from './i18n.js';
 
 export const LETTERS = [__('Α'), __('Β'), __('Γ'), __('Δ'), __('Ε'), __('Ζ')];
@@ -530,6 +530,186 @@ TYPES.drag = {
   }
 };
 
+/* 6γ. Λέξεις στην εικόνα: κενά πάνω σε μια εικόνα (π.χ. τα όργανα του πεπτικού) και λέξεις που σέρνουν τα παιδιά.
+   labels: [{ id, text, x, y }] με x, y από 0 έως 1: το κέντρο του κενού πάνω στην εικόνα. extra: λέξεις-παγίδες.
+   Label the picture: blanks placed on an image; children drag words into them. x, y are fractions of the image size. */
+const LB_MAX = 20;
+const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+const atPos = (l) => `left:${(clamp01(l.x) * 100).toFixed(2)}%;top:${(clamp01(l.y) * 100).toFixed(2)}%`;
+const lbOk = (q) => (q.labels || []).filter((l) => clean(l.text));
+let lbSeq = 0;
+const lbId = () => 'l' + Date.now().toString(36) + (lbSeq++).toString(36);
+/* Η εικόνα με τα κενά, πάντα με τις αναλογίες της εικόνας, ώστε οι θέσεις να πέφτουν σωστά. */
+function lbStageFit(stage) {
+  const img = stage && stage.querySelector('.lb-img');
+  if (!img) return;
+  const set = () => { if (img.naturalWidth && img.naturalHeight) stage.style.setProperty('--ar', (img.naturalWidth / img.naturalHeight).toFixed(4)); };
+  if (img.complete) set(); else img.addEventListener('load', set, { once: true });
+}
+const pinLabel = (l, k) => `${__('Κενό {0}', k + 1)}: ${clean(l.text) || __('χωρίς λέξη')}`;
+
+TYPES.label = {
+  label: __('Λέξεις στην εικόνα'), icon: '🏷', desc: __('Οι μαθητές σέρνουν λέξεις στα κενά μιας εικόνας, π.χ. τα μέρη ενός φυτού.'), scored: true, ownImage: true,
+  blank: () => ({ text: __('Σύρε κάθε λέξη στη θέση της.'), labels: [], extra: [], time: 120 }),
+  edit(q, i) {
+    if (!q.image) {
+      return `<div class="lb-ed"><label class="qe-drop lb-drop">${ICON.image}<span><b>${__('Ανέβασε την εικόνα')}</b> <span class="muted">${__('π.χ. ένα σχέδιο του πεπτικού συστήματος χωρίς ονόματα')}</span></span><input type="file" accept="image/*" data-c="image" class="sr"></label>
+        <p class="hint">${__('Μετά πατάς πάνω στην εικόνα, εκεί που θέλεις ένα κενό, και γράφεις τη λέξη του.')}</p></div>`;
+    }
+    const ls = q.labels || [];
+    return `<div class="lb-ed">
+      <p class="hint lb-ed-h">${ls.length ? __('Πάτα πάνω στην εικόνα για ένα ακόμη κενό. Σύρε ένα κενό για να το μετακινήσεις.') : __('Πάτα πάνω στην εικόνα, εκεί που θέλεις το πρώτο κενό.')}</p>
+      <div class="lb-stage lb-ed-stage" data-lb-stage>
+        <img class="lb-img" src="${esc(q.image)}" alt="${__('Η εικόνα της ερώτησης')}" draggable="false">
+        ${ls.map((l, k) => `<button type="button" class="lb-pin${clean(l.text) ? '' : ' is-empty'}" data-pin="${k}" style="${atPos(l)}" aria-label="${esc(pinLabel(l, k))}" title="${__('Σύρε για να το μετακινήσεις ή χρησιμοποίησε τα βέλη')}"><span class="lb-num" aria-hidden="true">${k + 1}</span><span class="lb-pin-t">${esc(clean(l.text) || '…')}</span></button>`).join('')}
+      </div>
+      <div class="lb-ed-tools"><label class="btn btn-sm btn-line">${ICON.image}${__('Άλλη εικόνα')}<input type="file" accept="image/*" data-c="image" class="sr"></label>
+        <span class="muted">${__('Τα κενά μένουν στις ίδιες θέσεις.')}</span></div>
+      <fieldset class="oe lb-words"><legend class="label">${__('Η λέξη κάθε κενού')}</legend>
+        ${ls.length ? ls.map((l, k) => `<div class="oe-row lb-row"><span class="lb-num" aria-hidden="true">${k + 1}</span><input class="input" data-lb="${k}" value="${esc(l.text)}" maxlength="40" placeholder="${esc(__('Η λέξη του κενού {0}', k + 1))}" aria-label="${esc(__('Η λέξη του κενού {0}', k + 1))}"><button type="button" class="icon-btn" data-del-lb="${k}" aria-label="${esc(__('Αφαίρεση του κενού {0}', k + 1))}">${ICON.x}</button></div>`).join('')
+          : `<p class="muted lb-none">${__('Δεν υπάρχουν κενά ακόμη.')}</p>`}
+      </fieldset>
+      <div class="field"><label class="label" for="lbx-${i}">${__('Λέξεις-παγίδες')} <span class="muted">${__('(προαιρετικά, χωρισμένες με κόμμα)')}</span></label>
+        <input class="input" id="lbx-${i}" data-lb-extra value="${esc((q.extra || []).join(', '))}"></div>
+    </div>`;
+  },
+  bind(root, q, change, redraw) {
+    q.labels = q.labels || [];
+    root.addEventListener('input', (e) => {
+      const k = e.target.dataset.lb;
+      if (k !== undefined) {
+        const l = q.labels[Number(k)];
+        if (!l) return;
+        l.text = e.target.value;
+        const pin = root.querySelector(`[data-pin="${k}"]`);
+        if (pin) {
+          pin.querySelector('.lb-pin-t').textContent = clean(l.text) || '…';
+          pin.classList.toggle('is-empty', !clean(l.text));
+          pin.setAttribute('aria-label', pinLabel(l, Number(k)));
+        }
+        change();
+      }
+      if (e.target.matches('[data-lb-extra]')) { q.extra = e.target.value.split(',').map(clean).filter(Boolean); change(); }
+    });
+    root.addEventListener('click', (e) => {
+      const del = e.target.closest('[data-del-lb]');
+      if (del) { q.labels.splice(Number(del.dataset.delLb), 1); change(); redraw(); }
+    });
+    const stage = root.querySelector('[data-lb-stage]');
+    if (!stage) return;
+    lbStageFit(stage);
+    const posOf = (ev) => { const r = stage.getBoundingClientRect(); return { x: clamp01((ev.clientX - r.left) / r.width), y: clamp01((ev.clientY - r.top) / r.height) }; };
+    // Σύρσιμο ενός κενού: αλλάζει θέση. / Dragging a blank moves it.
+    stage.addEventListener('pointerdown', (e) => {
+      const pin = e.target.closest('[data-pin]');
+      if (!pin || e.button > 0) return;
+      e.preventDefault();
+      const k = Number(pin.dataset.pin), sx = e.clientX, sy = e.clientY;
+      let moved = false;
+      try { pin.setPointerCapture(e.pointerId); } catch (er) { /* ignore */ }
+      const move = (ev) => {
+        if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return;
+        moved = true;
+        pin.classList.add('is-moving');
+        const at = posOf(ev);
+        q.labels[k].x = at.x; q.labels[k].y = at.y;
+        pin.style.left = `${(at.x * 100).toFixed(2)}%`; pin.style.top = `${(at.y * 100).toFixed(2)}%`;
+      };
+      const up = () => {
+        pin.removeEventListener('pointermove', move); pin.removeEventListener('pointerup', up); pin.removeEventListener('pointercancel', up);
+        pin.classList.remove('is-moving');
+        if (moved) { pin.dataset.moved = '1'; setTimeout(() => { delete pin.dataset.moved; }, 0); change(); }
+      };
+      pin.addEventListener('pointermove', move); pin.addEventListener('pointerup', up); pin.addEventListener('pointercancel', up);
+    });
+    // Πάτημα στην εικόνα: νέο κενό. Πάτημα σε κενό: πας στη λέξη του. / Tap the image: new blank.
+    stage.addEventListener('click', (e) => {
+      const pin = e.target.closest('[data-pin]');
+      if (pin) {
+        if (!pin.dataset.moved) { const inp = root.querySelector(`[data-lb="${pin.dataset.pin}"]`); if (inp) inp.focus(); }
+        return;
+      }
+      if (q.labels.length >= LB_MAX) { toast(__('Έως {0} κενά σε κάθε εικόνα.', LB_MAX), 'error'); return; }
+      const at = posOf(e);
+      q.labels.push({ id: lbId(), text: '', x: at.x, y: at.y });
+      change();
+      redraw(`[data-lb="${q.labels.length - 1}"]`);
+    });
+    // Με το πληκτρολόγιο: τα βέλη μετακινούν το κενό (με Shift πιο πολύ). / Arrow keys move a blank.
+    stage.addEventListener('keydown', (e) => {
+      const pin = e.target.closest('[data-pin]');
+      const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (!pin || !d) return;
+      e.preventDefault();
+      const l = q.labels[Number(pin.dataset.pin)], step = e.shiftKey ? 0.05 : 0.01;
+      l.x = clamp01(l.x + d[0] * step); l.y = clamp01(l.y + d[1] * step);
+      pin.style.left = `${(l.x * 100).toFixed(2)}%`; pin.style.top = `${(l.y * 100).toFixed(2)}%`;
+      change();
+    });
+  },
+  validate(q) {
+    const e = [];
+    if (!q.image) e.push(__('ανέβασε την εικόνα'));
+    else if (lbOk(q).length < 2) e.push(__('πάτα πάνω στην εικόνα για να βάλεις τουλάχιστον δύο κενά και γράψε τη λέξη τους'));
+    if ((q.labels || []).some((l) => !clean(l.text)) && lbOk(q).length) e.push(__('γράψε τη λέξη σε κάθε κενό ή σβήσε όσα περισσεύουν'));
+    return e;
+  },
+  tidy(q) {
+    q.labels = lbOk(q).slice(0, LB_MAX).map((l) => ({ id: l.id || lbId(), text: clean(l.text), x: Math.round(clamp01(l.x) * 10000) / 10000, y: Math.round(clamp01(l.y) * 10000) / 10000 }));
+    q.extra = (q.extra || []).map(clean).filter(Boolean).slice(0, 10);
+  },
+  play(root, q, ctx) {
+    const ls = lbOk(q);
+    const words = shuffle(ls.map((l) => clean(l.text)).concat((q.extra || []).map(clean).filter(Boolean)));
+    const chips = words.map((w, k) => ({ id: 'w' + k, label: w }));
+    const slots = ls.map((l, k) => ({ id: 's' + k, aria: __('Κενό {0}', k + 1) }));
+    const longest = Math.max(4, ...words.map((w) => w.length));
+    root.innerHTML = `<div class="q-card"><h1 class="q-text">${esc(q.text)}</h1></div>
+      <div class="lb-stage lb-play" style="--lbw:${Math.min(longest, 18)}"><img class="lb-img" src="${esc(q.image)}" alt="${__('Η εικόνα της ερώτησης')}" draggable="false"><div class="lb-layer" data-area></div></div>
+      <div class="bank" data-bank aria-label="${__('Λέξεις')}"></div>` + submitBar();
+    lbStageFit(root.querySelector('.lb-stage'));
+    const sub = root.querySelector('[data-submit]');
+    const w = placeWidget(root, {
+      chips, slots,
+      layout: (slotHtml) => slots.map((s, k) => `<span class="lb-pos" style="${atPos(ls[k])}"><span class="lb-num" aria-hidden="true">${k + 1}</span>${slotHtml(s)}</span>`).join(''),
+      onChange: (st) => { if (sub) sub.disabled = slots.some((s) => !st[s.id].length); }
+    });
+    sub.addEventListener('click', () => {
+      ctx.submit(slots.map((s) => { const id = w.state[s.id][0]; return id ? chips.find((c) => c.id === id).label : ''; }));
+    });
+    return {
+      reveal(a) {
+        w.lock();
+        root.querySelectorAll('.lb-pos').forEach((pos, k) => {
+          const ok = norm((a || [])[k]) === norm(ls[k].text);
+          const slot = pos.querySelector('[data-slot]');
+          if (slot) slot.classList.add(ok ? 'is-right' : 'is-wrong');
+          if (!ok) pos.insertAdjacentHTML('beforeend', `<span class="lb-fix">${esc(ls[k].text)}</span>`);
+        });
+        sub.hidden = true;
+      },
+      disable() { w.lock(); sub.disabled = true; }
+    };
+  },
+  check(q, a) {
+    const ls = lbOk(q);
+    return ls.length ? ls.filter((l, k) => norm((a || [])[k]) === norm(l.text)).length / ls.length : 0;
+  },
+  describe: (q, a) => (Array.isArray(a) && a.some(Boolean) ? lbOk(q).map((l, k) => `${k + 1}. ${a[k] || '—'}`).join(' · ') : '—'),
+  correct: (q) => lbOk(q).map((l, k) => `${k + 1}. ${clean(l.text)}`).join(' · '),
+  sample(q, good) {
+    const ls = lbOk(q).map((l) => clean(l.text));
+    return good ? ls : shuffle(ls.concat(q.extra || [])).slice(0, ls.length);
+  },
+  summary(q, answers) {
+    return `<div class="sb">${lbOk(q).map((l, k) => bar(`${k + 1}. ${clean(l.text)}`, answers.filter((a) => norm((a.v || [])[k]) === norm(l.text)).length, answers.length, true)).join('')}</div>`;
+  },
+  /* Η μπροστινή όψη στις κάρτες μελέτης: η εικόνα με τους αριθμούς των κενών. */
+  face: (q) => `<span class="lb-stage lb-face"><img class="lb-img" src="${esc(q.image)}" alt="">${lbOk(q).map((l, k) => `<span class="lb-mark" style="${atPos(l)}">${k + 1}</span>`).join('')}</span>`,
+  /* Η πίσω όψη: η ίδια εικόνα με τις λέξεις στη θέση τους. */
+  back: (q) => `<span class="lb-stage lb-face"><img class="lb-img" src="${esc(q.image)}" alt="">${lbOk(q).map((l, k) => `<span class="lb-ans" style="${atPos(l)}"><span class="lb-num" aria-hidden="true">${k + 1}</span>${esc(clean(l.text))}</span>`).join('')}</span>`
+};
+
 /* 6β. Υπογράμμιση στο κείμενο: «Ο Παρθενώνας χτίστηκε τον [5ο αιώνα π.Χ.].» */
 const WORD_RE = /[\p{L}\p{N}]+(?:['’.\-][\p{L}\p{N}]+)*/gu;
 function splitWords(text) {
@@ -965,7 +1145,7 @@ TYPES.open = {
   }
 };
 
-export const TYPE_ORDER = ['mcq', 'multi', 'tf', 'fill', 'dropdown', 'drag', 'underline', 'match', 'reorder', 'categorize', 'poll', 'open'];
+export const TYPE_ORDER = ['mcq', 'multi', 'tf', 'fill', 'dropdown', 'drag', 'label', 'underline', 'match', 'reorder', 'categorize', 'poll', 'open'];
 
 /* Εικονίδια ειδών (SVG, ίδια σε κάθε συσκευή). */
 const TI = (d, extra = '') => `<svg class="ico ti" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</g>${extra}</svg>`;
@@ -977,6 +1157,7 @@ const TYPE_ICONS = {
   dropdown: TI('<rect x="2.5" y="6" width="19" height="12" rx="3"/><path d="M13.5 11l2.5 2.5 2.5-2.5"/><path d="M6 12h4"/>'),
   underline: TI('<path d="M6.5 15.5l5.5-12 5.5 12M8.6 11h6.8"/><path d="M3.5 20.5h17" stroke-width="2.6"/>'),
   drag: TI('<rect x="3" y="3" width="11" height="6.5" rx="2"/><path d="M8.5 10v6"/><path d="M6 13.5l2.5 2.5 2.5-2.5"/><path d="M3 20.5h4M10 20.5h4M17 20.5h4"/>'),
+  label: TI('<rect x="2.5" y="3.5" width="19" height="17" rx="3"/><path d="M2.5 16.5l5-5 4 4 3-3 4.5 4.5"/><rect x="12" y="6" width="7.5" height="4" rx="1.2"/><path d="M9 8h3"/>'),
   match: TI('<circle cx="5" cy="6.5" r="2"/><circle cx="5" cy="17.5" r="2"/><circle cx="19" cy="6.5" r="2"/><circle cx="19" cy="17.5" r="2"/><path d="M7 7.5l10 9M7 16.5l10-9"/>'),
   reorder: TI('<path d="M10.5 6h10.5M10.5 12h10.5M10.5 18h10.5"/><path d="M5 3.5v17M2.5 6L5 3.5 7.5 6M2.5 18L5 20.5 7.5 18"/>'),
   categorize: TI('<rect x="2.5" y="3.5" width="8" height="17" rx="2"/><rect x="13.5" y="3.5" width="8" height="17" rx="2"/><path d="M5 8h3M5 11.5h3M16 8h3"/>'),
@@ -999,7 +1180,7 @@ export function grade(q, a) {
 export function validateQuestion(q) {
   const t = TYPES[q.type];
   const errs = [];
-  if (!clean(q.text) && !q.image && !['dropdown', 'drag'].includes(q.type)) errs.push(__('γράψε την ερώτηση'));
+  if (!clean(q.text) && !q.image && !['dropdown', 'drag', 'label'].includes(q.type)) errs.push(__('γράψε την ερώτηση'));
   return errs.concat(t ? t.validate(q) : [__('άγνωστο είδος ερώτησης')]);
 }
 export function tidyQuestion(q) {

@@ -1,5 +1,5 @@
 /* Η πλευρά του μαθητή: είσοδος από σύνδεσμο, παιχνίδι σε όλους τους τρόπους, τέλος. */
-import { esc, app, setTitle, toast, num, pct, plural, norm, shuffle, local, ICON, errText, LOGO, CFG, langSwitch } from './ui.js';
+import { esc, app, setTitle, toast, num, pct, plural, norm, shuffle, local, ICON, errText, LOGO, CFG, langSwitch, exitHref } from './ui.js';
 import { DB } from './store.js';
 import { TYPES, grade, isScored, parseCloze } from './qtypes.js';
 import { points, ranking, teamStats, POWERUPS, TEAM_SET, pickTeam } from './scoring.js';
@@ -12,6 +12,58 @@ const pickOne = (a) => a[Math.floor(Math.random() * a.length)];
 const teamById = (id) => TEAM_SET.find((t) => t.id === id) || null;
 const isOpen = (s) => s && s.status !== 'ended' && !(s.deadline && Date.now() > s.deadline);
 export const LAST_KEY = 'qz:last';
+
+/* Το παιχνίδι (ερωτήσεις και εικόνες) κατεβαίνει μία φορά σε κάθε επίσκεψη: η είσοδος ανοίγει τον ακροατή
+   και η σελίδα του παιχνιδιού συνεχίζει με τον ίδιο. Έτσι κάθε παιδί «κατεβάζει» το παιχνίδι μία φορά αντί για δύο,
+   που μετράει στο μηνιαίο όριο μεταφοράς του Firebase (σημαντικό για παιχνίδια με εικόνες).
+   The game (questions and images) is downloaded once per visit: the join page opens the listener and the game page
+   keeps using it, so each child downloads it once instead of twice (Firebase's free plan limits monthly transfer). */
+const LIVE_GRACE = 5 * 60 * 1000;
+const live = { on: false, sid: null, db: null, stop: null, has: false, value: null, subs: new Set(), timer: 0 };
+const cloneData = (v) => { if (v == null) return v; try { return structuredClone(v); } catch (e) { return v; } };
+function dropLive() {
+  clearTimeout(live.timer);
+  const stop = live.stop;
+  Object.assign(live, { on: false, sid: null, db: null, stop: null, has: false, value: null, subs: new Set() });
+  if (stop) { try { stop(); } catch (e) { /* ignore */ } }
+}
+function watchLive(sid, next, onErr) {
+  if (live.on && (live.sid !== sid || live.db !== DB)) dropLive();
+  clearTimeout(live.timer);
+  const sub = { next, onErr };
+  live.subs.add(sub);
+  if (!live.on) {
+    const subs = live.subs;
+    Object.assign(live, { on: true, sid, db: DB, has: false, value: null });
+    const stop = DB.watchSession(sid, (v) => {
+      if (live.subs !== subs) return;
+      live.has = true; live.value = v;
+      [...subs].forEach((x) => x.next(cloneData(v)));
+    }, (e) => {
+      if (live.subs !== subs) return;
+      const list = [...subs];
+      dropLive();
+      list.forEach((x) => { if (x.onErr) x.onErr(e); });
+    });
+    if (live.subs === subs) live.stop = stop;
+    else { try { stop(); } catch (e) { /* ignore */ } }
+  } else if (live.has) {
+    const v = live.value;
+    Promise.resolve().then(() => { if (live.subs.has(sub)) next(cloneData(v)); });
+  }
+  return () => {
+    if (!live.subs.has(sub)) return;
+    live.subs.delete(sub);
+    if (!live.subs.size) { clearTimeout(live.timer); live.timer = setTimeout(dropLive, LIVE_GRACE); }
+  };
+}
+function firstSession(sid) {
+  return new Promise((resolve, reject) => {
+    let release = null, settled = false;
+    const done = (fn) => { if (settled) return; settled = true; Promise.resolve().then(() => { if (release) release(); }); fn(); };
+    release = watchLive(sid, (v) => done(() => resolve(v)), (e) => done(() => reject(e)));
+  });
+}
 
 function shell(inner, cls = '', top = false) {
   return `<div class="pl ${cls}${top ? ' pl-has-top' : ''}">${top ? `<div class="pl-top"><a class="pl-brand" href="#/">${LOGO}<span>${esc(CFG.siteName)}</span></a>${langSwitch()}</div>` : ''}<div class="pl-in">${inner}</div></div>`;
@@ -32,8 +84,12 @@ export async function viewJoin(sid, ctx) {
     card.innerHTML = `<h1 class="pl-title">${esc(title)}</h1><p class="pl-text">${esc(text)}</p><p><a class="btn btn-sun btn-lg" href="#/">${__('Στην αρχή')}</a></p>`;
   };
   let uid, s;
-  try { uid = await DB.ensureStudent(); s = await DB.getSession(sid); } catch (e) { fail(__('Δεν άνοιξε το παιχνίδι'), errText(e)); return; }
-  if (!s) { fail(__('Ο σύνδεσμος δεν υπάρχει'), __('Ίσως τον διέγραψε ο εκπαιδευτικός. Ζήτησε νέο σύνδεσμο.')); return; }
+  try { uid = await DB.ensureStudent(); s = await firstSession(sid); } catch (e) { fail(__('Δεν άνοιξε το παιχνίδι'), errText(e)); return; }
+  if (!s) {
+    if (DB.mode === 'demo') fail(__('Ο σύνδεσμος δεν υπάρχει σε αυτόν τον browser'), __('Η πλατφόρμα λειτουργεί δοκιμαστικά: κάθε σύνδεσμος ανοίγει μόνο στον browser όπου φτιάχτηκε. Για να παίζουν τα παιδιά από τις συσκευές τους, ο εκπαιδευτικός πρέπει να τη συνδέσει με τη δωρεάν βάση Firebase.'));
+    else fail(__('Ο σύνδεσμος δεν υπάρχει'), __('Ίσως τον διέγραψε ο εκπαιδευτικός. Ζήτησε νέο σύνδεσμο.'));
+    return;
+  }
   if (s.kicked && s.kicked[uid]) { fail(__('Δεν μπορείς να μπεις σε αυτό το παιχνίδι'), __('Ο εκπαιδευτικός σε αφαίρεσε από αυτό το παιχνίδι.')); return; }
   let mine = null;
   try { mine = await DB.getPlayer(sid, uid); } catch (e) { /* πρώτη φορά */ }
@@ -53,6 +109,7 @@ export async function viewJoin(sid, ctx) {
     <p class="pl-kicker">${esc(mode.icon)} ${esc(mode.label)}</p>
     <h1 class="pl-title">${esc(s.title)}</h1>
     <p class="pl-text pl-small">${esc(mode.kid || mode.desc)}</p>
+    ${s.own ? `<p class="pl-own">${__('Δοκιμή: δεν αποθηκεύεται τίποτα και δεν φαίνεται στα αποτελέσματα.')}</p>` : ''}
     ${s.deadline ? `<p class="pl-small pl-deadline">${__('Μέχρι')} ${esc(new Date(s.deadline).toLocaleString(LOCALE, { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }))}</p>` : ''}
     ${roster ? `<p class="pl-text">${__('Πάτησε το όνομά σου.')}</p>
       <div class="roster" role="group" aria-label="${__('Ονόματα της τάξης')}">${roster.map((n) => `<button type="button" class="roster-b" data-name="${esc(n)}" ${taken.includes(norm(n)) ? 'disabled aria-disabled="true"' : ''}>${esc(n)}</button>`).join('')}</div>
@@ -110,7 +167,7 @@ export function viewPlay(sid, ctx) {
     try { uid = await DB.ensureStudent(); P = await DB.getPlayer(sid, uid); } catch (e) { fatal(errText(e)); return; }
     if (!P || !P.name) { ctx.go('/g/' + sid, true); return; }
     P.answers = P.answers || {};
-    unsub = DB.watchSession(sid, onSession, (e) => toast(errText(e), 'error'));
+    unsub = watchLive(sid, onSession, (e) => toast(errText(e), 'error'));
   }
   function fatal(text) {
     el.innerHTML = shell(`<div class="pl-card"><h1 class="pl-title">${__('Κάτι δεν πήγε καλά')}</h1><p class="pl-text">${esc(text)}</p><p><a class="btn btn-sun btn-lg" href="#/">${__('Στην αρχή')}</a></p></div>`);
@@ -144,7 +201,7 @@ export function viewPlay(sid, ctx) {
     screen = 'q';
     el.innerHTML = `<div class="game" style="${opts.team ? `--t:${opts.team.color}` : ''}">
       <div class="game-bar">
-        <a class="g-btn" href="#/" aria-label="${__('Έξοδος')}">${ICON.back}<span class="hide-sm">${__('Έξοδος')}</span></a>
+        <a class="g-btn" href="${exitHref(S)}" aria-label="${__('Έξοδος')}">${ICON.back}<span class="hide-sm">${__('Έξοδος')}</span></a>
         <span class="game-count" aria-live="polite"></span>
         <span class="game-stats">${opts.team ? teamBadge(opts.team) : ''}<span class="game-streak" hidden></span><span class="game-pts" ${opts.noPoints ? 'hidden' : ''}><span data-pts>${num(P.score || 0)}</span> ${__('πόντοι')}</span></span>
       </div>
@@ -432,17 +489,17 @@ export function viewPlay(sid, ctx) {
         screen = 'cards-done';
         el.innerHTML = shell(`<div class="pl-card"><p class="pl-kicker">${__('Κάρτες μελέτης')}</p><h1 class="pl-title">${__('Τις ήξερες όλες!')}</h1>
           <p class="pl-text">${known} ${__('από {0} κάρτες.', qs.length)}</p>
-          <p class="end-actions"><button class="btn btn-sun btn-lg" type="button" data-again>${__('Ξανά από την αρχή')}</button> <a class="btn btn-ghost-light btn-lg" href="#/">${__('Έξοδος')}</a></p></div>`);
+          <p class="end-actions"><button class="btn btn-sun btn-lg" type="button" data-again>${__('Ξανά από την αρχή')}</button> <a class="btn btn-ghost-light btn-lg" href="${exitHref(S)}">${__('Έξοδος')}</a></p></div>`);
         el.querySelector('[data-again]').addEventListener('click', () => { queue = shuffle(qs.map((q) => q.id)); show(); });
         return;
       }
       screen = 'cards';
       const q = byId[queue[0]];
-      el.innerHTML = `<div class="game"><div class="game-bar"><a class="g-btn" href="#/">${ICON.back}<span class="hide-sm">${__('Έξοδος')}</span></a>
+      el.innerHTML = `<div class="game"><div class="game-bar"><a class="g-btn" href="${exitHref(S)}">${ICON.back}<span class="hide-sm">${__('Έξοδος')}</span></a>
         <span class="game-count">${__('Ήξερες {0} από {1}, απομένουν', known, qs.length)} ${queue.length}</span><span></span></div>
         <div class="game-body"><button type="button" class="flash" aria-pressed="false">
-          <span class="flash-face flash-front"><span class="flash-tag">${__('Ερώτηση')}</span><span class="flash-text">${front(q)}</span>${q.image ? `<img class="q-img" src="${esc(q.image)}" alt="">` : ''}<span class="flash-hint">${__('Πάτα για να δεις την απάντηση')}</span></span>
-          <span class="flash-face flash-back"><span class="flash-tag">${__('Απάντηση')}</span><span class="flash-text">${esc(TYPES[q.type].correct(q))}</span>${q.explain ? `<span class="flash-ex">${esc(q.explain)}</span>` : ''}</span>
+          <span class="flash-face flash-front"><span class="flash-tag">${__('Ερώτηση')}</span><span class="flash-text">${front(q)}</span>${TYPES[q.type].face ? TYPES[q.type].face(q) : q.image ? `<img class="q-img" src="${esc(q.image)}" alt="">` : ''}<span class="flash-hint">${__('Πάτα για να δεις την απάντηση')}</span></span>
+          <span class="flash-face flash-back"><span class="flash-tag">${__('Απάντηση')}</span>${TYPES[q.type].back ? TYPES[q.type].back(q) : `<span class="flash-text">${esc(TYPES[q.type].correct(q))}</span>`}${q.explain ? `<span class="flash-ex">${esc(q.explain)}</span>` : ''}</span>
         </button>
         <div class="flash-actions" hidden><button class="btn btn-lg btn-ghost-light" type="button" data-k="0">${__('Θέλω επανάληψη')}</button><button class="btn btn-lg btn-sun" type="button" data-k="1">${__('Το ήξερα')}</button></div></div></div>`;
       const card = el.querySelector('.flash');
@@ -565,10 +622,10 @@ export function viewPlay(sid, ctx) {
         ${m ? `<p class="end-note">${m.pct * 100 >= (st.goal || 80) ? (__('Έφτασες στην κορυφή!') + ' ⛰️') : `${__('Ο στόχος είναι {0}%. Μπορείς να ξαναδοκιμάσεις όσες δεν κατέκτησες.', st.goal || 80)}`}</p>` : ''}`;
     }
     const actions = `${retry ? ('<button class="btn btn-sun btn-lg" type="button" data-retry>' + __('Ξανά όσες δεν κατέκτησα') + '</button>') : ''}${replay ? ('<button class="btn btn-sun btn-lg" type="button" data-replay>' + __('Παίξε ξανά') + '</button>') : ''}
-      <a class="btn ${retry || replay ? 'btn-ghost-light' : 'btn-sun'} btn-lg" href="#/">${__('Έξοδος')}</a>`;
+      <a class="btn ${retry || replay ? 'btn-ghost-light' : 'btn-sun'} btn-lg" href="${exitHref(s)}">${s.own ? __('Πίσω') : __('Έξοδος')}</a>`;
     el.innerHTML = `<div class="pl pl-end"><div class="pl-in pl-wide"><div class="end-card">
       <p class="pl-me">${esc(P.name)} ${teamBadge(teamById(P.team))}</p>${headline}
-      <p class="end-actions">${actions}</p>${DB.sandbox ? `<div class="end-try"><p>${__('Αυτό ήταν ένα δοκιμαστικό παιχνίδι. Θέλεις να φτιάξεις ένα με τις δικές σου ερωτήσεις;')}</p><p class="end-actions"><a class="btn btn-sun btn-lg" href="#/signup">${__('Φτιάξε δωρεάν λογαριασμό')}</a> <a class="btn btn-ghost-light btn-lg" href="#/try">${__('Δοκίμασε άλλο παιχνίδι')}</a></p></div>` : ''}</div>${teamHtml}${lb}${reviewHtml}</div></div>`;
+      <p class="end-actions">${actions}</p>${DB.sandbox && s.own ? `<div class="end-try"><p>${__('Αυτή ήταν δοκιμή: δεν αποθηκεύτηκε τίποτα και δεν φαίνεται στα αποτελέσματα.')}</p></div>` : DB.sandbox ? `<div class="end-try"><p>${__('Αυτό ήταν ένα δοκιμαστικό παιχνίδι. Θέλεις να φτιάξεις ένα με τις δικές σου ερωτήσεις;')}</p><p class="end-actions"><a class="btn btn-sun btn-lg" href="#/signup">${__('Φτιάξε δωρεάν λογαριασμό')}</a> <a class="btn btn-ghost-light btn-lg" href="#/try">${__('Δοκίμασε άλλο παιχνίδι')}</a></p></div>` : ''}</div>${teamHtml}${lb}${reviewHtml}</div></div>`;
     const rb = el.querySelector('[data-retry]');
     if (rb) rb.addEventListener('click', retryMastery);
     const pb = el.querySelector('[data-replay]');

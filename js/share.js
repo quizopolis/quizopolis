@@ -7,6 +7,7 @@ import { ranking, TEAM_SET } from './scoring.js';
 import { TYPES } from './qtypes.js';
 import { teacherTop, linkUrl, linkState, untilText } from './teacher.js';
 import { gameIcon } from './gicons.js';
+import { playOwn } from './playown.js';
 import { __ } from './i18n.js';
 
 export function viewLink(sid, ctx) {
@@ -31,7 +32,9 @@ export function viewLink(sid, ctx) {
     const m = MODES[S.mode] || MODES.classic;
     const url = linkUrl(sid, S.lang);
     const state = linkState(S);
-    const qr = window.QzQR ? window.QzQR.svg(url, __('QR για τον σύνδεσμο')) : '';
+    // Στη δοκιμαστική λειτουργία ο σύνδεσμος ανοίγει μόνο σε αυτόν τον browser: χωρίς QR και με εξήγηση.
+    const demo = DB.mode === 'demo';
+    const qr = !demo && window.QzQR ? window.QzQR.svg(url, __('QR για τον σύνδεσμο')) : '';
     const msg = `${__('Παίξε «{0}» στο {1}:', S.title, CFG.siteName)} ${url}`;
     const stateText = state === 'closed' ? __('Κλειστό') : state === 'expired' ? __('Έληξε') : S.deadline ? __('Ανοιχτό ως {0}', untilText(S.deadline)) : __('Ανοιχτό, χωρίς προθεσμία');
     const who = S.className ? (S.roster ? `${esc(S.className)}, ${plural(S.roster.length, __('παιδί'), __('παιδιά'))}` : esc(S.className))
@@ -43,11 +46,12 @@ export function viewLink(sid, ctx) {
       <section class="lk-share"><div class="lk-share-t">
         <h2>${__('Στείλε τον σύνδεσμο στα παιδιά')}</h2>
         <p>${S.roster ? __('Όποιο παιδί τον ανοίξει πατά το όνομά του και παίζει, από κινητό, τάμπλετ ή υπολογιστή.') : __('Όποιο παιδί τον ανοίξει γράφει το όνομά του και παίζει, από κινητό, τάμπλετ ή υπολογιστή.')}</p>
+        ${demo ? `<p class="banner lk-demo">${__('Δοκιμαστική λειτουργία: ο σύνδεσμος ανοίγει μόνο σε αυτόν τον browser. Από κινητό ή άλλον υπολογιστή θα βγάλει «Ο σύνδεσμος δεν υπάρχει». Για να παίξουν τα παιδιά από τις συσκευές τους, σύνδεσε τη δωρεάν βάση Firebase:')} <a href="#/setup">${__('οδηγός')}</a></p>` : ''}
         <div class="lk-url"><label class="sr" for="lk-url">${__('Σύνδεσμος')}</label><input class="input" id="lk-url" readonly value="${esc(url)}">
           <button class="btn btn-primary" type="button" data-copy>${ICON.copy}${__('Αντιγραφή')}</button></div>
         <p class="actions lk-ways"><button class="btn btn-sm btn-line" type="button" data-copy-msg>${ICON.msg}${__('Αντιγραφή με μήνυμα')}</button>
           ${navigator.share ? `<button class="btn btn-sm btn-line" type="button" data-native>${ICON.share}${__('Κοινοποίηση')}</button>` : ''}
-          <a class="btn btn-sm btn-line" href="${DB.storageNote === 'memory' ? `#/g/${esc(sid)}` : esc(url)}" ${DB.storageNote === 'memory' ? '' : 'target="_blank" rel="noopener"'}>${ICON.eye}${__('Δοκίμασέ το ως μαθητής')}</a></p></div>
+          <button class="btn btn-sm btn-line" type="button" data-try-own title="${__('Παίζεις όπως τα παιδιά. Δεν αποθηκεύεται τίποτα και δεν φαίνεται στα αποτελέσματα.')}">${ICON.eye}${__('Δοκίμασέ το ως μαθητής')}</button></p></div>
         ${qr ? `<div class="lk-qr">${qr}<small>${__('Σάρωσε ή τύπωσε')}</small></div>` : ''}
       </section>
       <div class="lk-cols">
@@ -66,6 +70,11 @@ export function viewLink(sid, ctx) {
     drawn = true;
     drawPlayers();
     main.querySelector('[data-copy]').addEventListener('click', () => copy(url).then(() => toast(__('Αντιγράφηκε ο σύνδεσμος.'), 'ok'), () => { main.querySelector('#lk-url').select(); toast(__('Πάτα Ctrl+C για αντιγραφή.')); }));
+    main.querySelector('[data-try-own]').addEventListener('click', (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      playOwn(S, ctx, { mode: S.mode, join: true, back: '/t/link/' + sid }).catch((er) => toast(errText(er), 'error')).finally(() => { b.disabled = false; });
+    });
     main.querySelector('[data-copy-msg]').addEventListener('click', () => copy(msg).then(() => toast(__('Αντιγράφηκε το μήνυμα με τον σύνδεσμο.'), 'ok'), () => toast(msg)));
     main.querySelector('#lk-url').addEventListener('focus', (e) => e.target.select());
     const nat = main.querySelector('[data-native]');

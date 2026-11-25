@@ -46,7 +46,7 @@ export function hintFor(q, box) {
     const a = String((q.answers || [])[0] || '');
     return `${__('«Η απάντηση αρχίζει από «{0}» και έχει {1} γράμματα.»', a.charAt(0), a.replace(/\s/g, '').length)}`;
   }
-  const parts = String(t.correct(q)).split(/[;,]\s*/).filter(Boolean);
+  const parts = String(t.correct(q)).split(/\s*[;,·]\s*/).map((x) => x.trim()).filter(Boolean);
   return parts.length ? `${__('«Δεν ξέρω όλη την απάντηση, αλλά είμαι σίγουρος για αυτό: {0}.»', parts[0])}` : __('«Δυστυχώς δεν ξέρω.»');
 }
 

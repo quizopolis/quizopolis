@@ -6,6 +6,7 @@ import { ranking, teamStats, playerStats, TEAM_SET } from './scoring.js';
 import { MODES, usesTeams, isReview, unitOf } from './modes.js';
 import { teacherTop, linkUrl, linkState, LINK_STATE } from './teacher.js';
 import { __ } from './i18n.js';
+import { noteReport } from './stats.js';
 
 const teamById = (id) => TEAM_SET.find((t) => t.id === id) || null;
 const NO_POINTS = ['test', 'flashcards'];
@@ -40,6 +41,7 @@ export function viewReport(sid, ctx) {
     const me = DB.user();
     if (!S || !me || S.owner !== me.uid) { main.innerHTML = ('<div class="empty"><p class="empty-t">' + __('Η αναφορά δεν βρέθηκε.') + '</p><p><a class="btn" href="#/t/links">' + __('Στους συνδέσμους') + '</a></p></div>'); return; }
     setTitle(`${__('Αναφορά:')} ${S.title}`);
+    noteReport(Object.assign({ id: sid }, S), players);
     render();
   }
 

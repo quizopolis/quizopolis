@@ -8,7 +8,8 @@ import { TEAM_SET } from './scoring.js';
 import { sampleGames } from './samples.js';
 import { sampleGamesEn } from './samples-en.js';
 import { __, LANG, LOCALE, rememberLang } from './i18n.js';
-import { choiceOf, linkModeOf } from './choose.js';
+import { choiceOf, linkModeOf, pickDialog } from './choose.js';
+import { playOwn, deviceModeOf } from './playown.js';
 import { gameIcon, tint } from './gicons.js';
 
 /* ---------- πλαϊνό μενού (στο κινητό: μπάρα στο κάτω μέρος) ---------- */
@@ -74,11 +75,13 @@ export function viewLibrary(ctx) {
     const main = ch && ch.stage
       ? `<a class="btn btn-line btn-sm" href="#/t/stage/${id}">${ICON.screen}${__('Στην οθόνη της τάξης')}</a>`
       : `<button class="btn btn-soft btn-sm" type="button" data-share="${id}">${ICON.send}${__('Στείλε στην τάξη')}</button>`;
+    // Το ▶ παίζει το παιχνίδι αμέσως: για δοκιμή ή με όλη την τάξη στην οθόνη.
+    const playBtn = ch && ch.stage ? '' : `<button class="icon-btn gcard-play" type="button" data-play="${id}" aria-label="${__('Παίξε το «{0}» τώρα', esc(title))}" title="${__('Παίξε το τώρα: για δοκιμή ή με όλη την τάξη στην οθόνη')}">${ICON.play}</button>`;
     return `<article class="gcard" data-id="${id}">
       <a class="gcard-cover" href="#/t/edit/${id}" style="background:${tint(c, 0.16)}" tabindex="-1" aria-hidden="true">${ch ? `<span class="gcard-badge gcard-game">${gameIcon(g.mode, { size: 24 })}<span>${esc(ch.full)}</span></span>` : ''}<span class="gcard-emoji">${esc((g.cover && g.cover.emoji) || '🧠')}</span></a>
       <div class="gcard-body"><h2 class="gcard-t"><a href="#/t/edit/${id}">${esc(title)}</a></h2>
         ${ch ? `<p class="sr">${esc(ch.full)}</p>` : ''}<p class="gcard-meta">${meta}</p></div>
-      <div class="gcard-actions">${main}<button class="icon-btn" type="button" data-menu="${id}" aria-haspopup="menu" aria-expanded="false" aria-label="${__('Περισσότερα για το «{0}»', esc(title))}" title="${__('Περισσότερα')}">${ICON.more}</button></div>
+      <div class="gcard-actions">${main}${playBtn}<button class="icon-btn" type="button" data-menu="${id}" aria-haspopup="menu" aria-expanded="false" aria-label="${__('Περισσότερα για το «{0}»', esc(title))}" title="${__('Περισσότερα')}">${ICON.more}</button></div>
     </article>`;
   };
   const draw = () => {
@@ -118,9 +121,27 @@ export function viewLibrary(ctx) {
     try { const g = await DB.getGame(gid); if (g) await shareDialog(g, ctx); else toast(__('Το παιχνίδι δεν βρέθηκε.'), 'error'); } catch (er) { toast(errText(er), 'error'); }
     if (btn) btn.disabled = false;
   };
+  const play = async (gid, btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const g = await DB.getGame(gid);
+      if (!g) { toast(__('Το παιχνίδι δεν βρέθηκε.'), 'error'); return; }
+      let mode = deviceModeOf(g.mode);
+      if (!mode) {
+        // Χωρίς διαλεγμένο παιχνίδι: ρωτάμε ποιο και το κρατάμε για την επόμενη φορά.
+        const v = choiceOf(g.mode) ? g.mode : await pickDialog(g.mode);
+        if (!v) return;
+        if (v !== g.mode) { g.mode = v; try { await DB.saveGame(g); } catch (er) { /* παίζεται και χωρίς αποθήκευση */ } }
+        if (/^stage-/.test(v)) { ctx.go('/t/stage/' + gid); return; }
+        mode = deviceModeOf(v);
+      }
+      await playOwn(g, ctx, { mode, back: '/t' });
+    } catch (er) { toast(errText(er), 'error'); } finally { if (btn) btn.disabled = false; }
+  };
   list.addEventListener('click', async (e) => {
     const t = e.target.closest('button');
     if (!t) return;
+    if (t.dataset.play) { play(t.dataset.play, t); return; }
     if (t.matches('[data-samples]')) {
       const b = busy(__('Προστίθενται τα παραδείγματα…'));
       try { for (const g of (LANG === 'en' ? sampleGamesEn() : sampleGames()).reverse()) { await DB.saveGame(g); await sleep(5); } } catch (er) { toast(errText(er), 'error'); }
@@ -134,7 +155,8 @@ export function viewLibrary(ctx) {
       const ch = choiceOf(g.mode);
       popMenu(t, [
         { label: __('Επεξεργασία'), icon: ICON.edit, act: () => ctx.go('/t/edit/' + gid) },
-        ch && ch.stage ? { label: __('Στείλε σύνδεσμο στα παιδιά'), icon: ICON.send, act: () => share(gid) } : { label: __('Στον προβολέα της τάξης'), icon: ICON.screen, act: () => ctx.go('/t/stage/' + gid) },
+        ...(ch && ch.stage ? [{ label: __('Στείλε σύνδεσμο στα παιδιά'), icon: ICON.send, act: () => share(gid) }]
+          : [{ label: __('Παίξε το τώρα'), icon: ICON.play, act: () => play(gid) }, { label: __('Στον προβολέα με ομάδες'), icon: ICON.screen, act: () => ctx.go('/t/stage/' + gid) }]),
         { label: __('Αντίγραφο'), icon: ICON.copy, act: () => dup(gid) },
         '-',
         { label: __('Διαγραφή'), icon: ICON.trash, danger: true, act: () => del(gid) }
@@ -160,22 +182,22 @@ export function viewLibrary(ctx) {
         <div class="lrow-p" data-prog="${esc(s.id)}"><small>${__('Φορτώνει…')}</small><div class="bar"><i style="width:0"></i></div></div>
         <span class="live-dot">${esc(closesText(s.deadline))}</span><a class="btn btn-line btn-sm" href="#/t/link/${esc(s.id)}">${__('Αποτελέσματα')}</a></div>`;
     }).join('');
+    // Μόνο μετρήσεις (2 αναγνώσεις ανά σύνδεσμο), όχι όλοι οι παίκτες. / Counts only, not every player.
     open.forEach((s) => {
       const cls = classes.find((c) => c.id === s.classId);
       const total = cls ? (cls.students || []).length : 0;
-      let un = null;
-      un = DB.watchPlayers(s.id, (ps) => {
+      DB.countPlayers(s.id).then(({ joined, done }) => {
         if (!alive) return;
         const p = rows.querySelector(`[data-prog="${s.id}"]`);
         if (!p) return;
-        const joined = ps.length, done = ps.filter((x) => x.done).length;
         const frac = total ? Math.min(1, joined / total) : joined ? done / joined : 0;
         p.querySelector('small').innerHTML = total ? __('<b>{0}</b> από {1} παιδιά έπαιξαν', joined, total)
           : joined ? __('<b>{0}</b> μπήκαν, {1} τελείωσαν', joined, done) : __('Δεν έχει παίξει κανείς ακόμη');
         p.querySelector('.bar i').style.width = `${Math.round(frac * 100)}%`;
-        if (un) { un(); un = null; }
-      }, () => {});
-      if (un) unsubs.push(() => { if (un) un(); });
+      }, () => {
+        const p = alive && rows.querySelector(`[data-prog="${s.id}"]`);
+        if (p) p.querySelector('small').textContent = '';
+      });
     });
   })();
   ctx.setCleanup(() => { alive = false; unsubs.forEach((f) => f()); document.querySelectorAll('.menu').forEach((m) => m.remove()); });
@@ -424,42 +446,7 @@ export const linkUrl = (sid, lang) => `${(location.origin + location.pathname).r
 export const linkState = (s) => (s.status === 'ended' ? 'closed' : s.deadline && Date.now() > s.deadline ? 'expired' : 'open');
 export const LINK_STATE = { open: __('Ανοιχτός'), closed: __('Κλειστός'), expired: __('Έληξε') };
 
-export function viewLinks(ctx) {
-  setTitle(__('Αποτελέσματα'));
-  const el = app();
-  el.className = 'v-teacher';
-  el.innerHTML = teacherTop('links') + `<main class="tmain narrow">
-    <div class="thead"><h1 class="h1">${__('Αποτελέσματα')}</h1></div>
-    <p class="lead">${__('Κάθε φορά που στέλνεις ένα παιχνίδι στην τάξη φτιάχνεται ένας σύνδεσμος. Εδώ βλέπεις ποιος έπαιξε και τι απάντησε, και κλείνεις τους συνδέσμους.')}</p>
-    <div data-list><p class="muted">${__('Φορτώνει…')}</p></div></main>`;
-  const list = el.querySelector('[data-list]');
-  let sessions = [], classes = [];
-  const load = () => Promise.all([DB.listSessions(), DB.listClasses().catch(() => [])]).then(([ss, cs]) => {
-    classes = cs;
-    sessions = ss.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    list.innerHTML = sessions.length ? `<ul class="rows">${sessions.map((s) => {
-      const m = MODES[s.mode] || MODES.classic;
-      const state = linkState(s);
-      const cls = classes.find((c) => c.id === s.classId);
-      const cn = s.className || (cls && cls.name);
-      return `<li class="row-i has-ic">${gameIcon(s.mode, { size: 40 })}<span class="row-t"><span>${esc(s.title)}</span></span>
-        <span class="row-s"><span>${esc(m.label)}${cn ? `, ${esc(cn)}` : ''}</span><span>${esc(fmtDate(s.createdAt, false))}</span><span class="state state-${state}">${state === 'open' ? esc(closesText(s.deadline)) : LINK_STATE[state]}</span></span>
-        <span class="row-a"><a class="btn btn-sm btn-line" href="#/t/link/${esc(s.id)}">${ICON.link}${__('Σύνδεσμος')}</a><a class="btn btn-sm btn-soft" href="#/t/report/${esc(s.id)}">${ICON.chart}${__('Αναφορά')}</a>
-        <button class="icon-btn icon-danger" type="button" data-del="${esc(s.id)}" aria-label="${__('Διαγραφή του συνδέσμου')} ${esc(s.title)}">${ICON.trash}</button></span></li>`;
-    }).join('')}</ul>` : (`<div class="empty"><p class="empty-t">${__('Δεν έχεις στείλει ακόμη κανένα παιχνίδι.')}</p><p>${__('Από «Τα παιχνίδια μου» πάτα «Στείλε στην τάξη» σε ένα παιχνίδι.')}</p><p class="actions center"><a class="btn btn-primary" href="#/t">${__('Τα παιχνίδια μου')}</a></p></div>`);
-  }, (e) => { list.innerHTML = `<div class="banner banner-bad">${esc(errText(e))}</div>`; });
-  list.addEventListener('click', async (e) => {
-    const del = e.target.closest('[data-del]');
-    if (!del) return;
-    const s = sessions.find((x) => x.id === del.dataset.del);
-    if (s && await confirmDanger(`${__('Διαγραφή του συνδέσμου «{0}»;', s.title)}`, __('Ο σύνδεσμος δεν θα ανοίγει πια και θα σβηστούν οι απαντήσεις των παιδιών.'))) {
-      const b = busy(__('Διαγραφή…'));
-      try { await DB.deleteSession(s.id); load(); } catch (er) { toast(errText(er), 'error'); }
-      b.close();
-    }
-  });
-  load();
-}
+/* Η σελίδα «Αποτελέσματα» βρίσκεται στο dashboard.js. / The Results page lives in dashboard.js. */
 
 /* ================= ΛΟΓΑΡΙΑΣΜΟΣ ================= */
 export function viewAccount(ctx) {

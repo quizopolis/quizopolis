@@ -141,6 +141,9 @@ export const ICON = {
 };
 
 /* Μικρό μενού κάτω από ένα κουμπί (π.χ. «⋯»). items: [{ label, icon, act, danger }] ή '-' για διαχωριστικό. */
+/* Πού οδηγεί η «Έξοδος» ενός παιχνιδιού: στην αρχή, ή πίσω στον εκπαιδευτικό όταν δοκιμάζει το δικό του. */
+export const exitHref = (S) => (S && S.own && /^\/t(\/|$)/.test(S.own.back || '') ? '#' + S.own.back : '#/');
+
 export function popMenu(btn, items) {
   document.querySelectorAll('.menu').forEach((m) => m.remove());
   const m = document.createElement('div');
