@@ -27,15 +27,3 @@ window.QUIZOPOLIS_CONFIG = {
     appId: "1:887516851153:web:c7ed71bd3851d8ed800ef0"
   }
 };
-
-  /* Παράδειγμα / Example:
-  firebase: {
-    apiKey: "AIza...",
-    authDomain: "your-project.firebaseapp.com",
-    projectId: "your-project",
-    storageBucket: "your-project.firebasestorage.app",
-    messagingSenderId: "1234567890",
-    appId: "1:1234567890:web:abcdef"
-  }
-  */
-};
