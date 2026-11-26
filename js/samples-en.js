@@ -3,6 +3,8 @@ import { rid } from './ui.js';
 import { PLANT_IMG } from './sample-art.js';
 
 const Q = (type, time, data) => Object.assign({ id: 'q' + rid(8), type, text: '', image: '', time, double: false, explain: '' }, data);
+/* Κάρτα μελέτης: μπροστά και πίσω. / A flashcard: front and back. */
+const C = (front, back) => ({ id: 'q' + rid(8), type: 'card', text: front, image: '', video: null, back: { text: back, image: '', video: null } });
 
 export function sampleGamesEn() {
   return [
@@ -25,6 +27,22 @@ export function sampleGamesEn() {
         Q('categorize', 60, { category: 'English', text: 'Put each word in the right group.', groups: [{ name: 'Nouns', items: ['sea', 'teacher', 'book'] }, { name: 'Adjectives', items: ['tall', 'pretty', 'red'] }, { name: 'Verbs', items: ['swim', 'jump'] }] }),
         Q('poll', 20, { text: 'Which subject do you like most?', options: ['Maths', 'English', 'History', 'Science'] }),
         Q('open', 90, { text: 'Write in a few words something you learned today.' })
+      ]
+    },
+    {
+      title: 'Science: key words',
+      mode: 'flashcards',
+      description: 'Flashcards: a science word on the front and what it means on the back.',
+      grades: ['Δ΄', 'Ε΄'], subject: 'Φυσικά', cover: { color: '#E8A20E', emoji: '🔬' },
+      questions: [
+        C('Photosynthesis', 'How plants make their food from sunlight, water and carbon dioxide.'),
+        C('Evaporation', 'When a liquid turns into a gas, like water drying in the sun.'),
+        C('Condensation', 'When a gas turns back into a liquid, like drops on a cold glass.'),
+        C('Magnet', 'An object that pulls iron and steel towards it.'),
+        C('Habitat', 'The natural home of an animal or a plant.'),
+        C('Predator', 'An animal that hunts other animals for food.'),
+        C('Vibration', 'A quick movement back and forth. Sound is made by vibrations.'),
+        C('Insulator', 'A material that does not let heat or electricity pass through easily.')
       ]
     },
     {

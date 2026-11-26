@@ -31,10 +31,10 @@ export const MODES = {
   },
   flashcards: {
     label: __('Κάρτες μελέτης'), icon: '🃏', group: 'basic',
-    short: __('Κάρτες με την ερώτηση μπροστά και την απάντηση πίσω.'),
-    desc: __('Γυρίζουν κάρτες με την ερώτηση και τη σωστή απάντηση και σημειώνουν τι ήξεραν.'),
-    kid: __('Γύρνα τις κάρτες, δες τη σωστή απάντηση και σημείωσε αν την ήξερες.'),
-    defaults: { shuffleQ: true }
+    short: __('Κάρτες με κείμενο, εικόνα ή βίντεο μπροστά και πίσω.'),
+    desc: __('Τα παιδιά γυρίζουν κάθε κάρτα και σημειώνουν αν την ήξεραν. Όσες δεν ήξεραν ξανάρχονται, ώσπου να τις μάθουν όλες.'),
+    kid: __('Γύρνα κάθε κάρτα και σημείωσε αν την ήξερες. Όσες δεν ήξερες θα ξανάρθουν, μέχρι να τις μάθεις όλες!'),
+    defaults: { shuffleQ: true, backFirst: false }
   },
   millionaire: {
     label: __('Εκατομμυριούχος'), icon: '💰', group: 'review', unit: '€', replay: true, stage: true,
@@ -116,5 +116,14 @@ export const MODE_ORDER = BASIC_MODES.concat(REVIEW_MODES);
 export function modeOf(s) { return MODES[s && s.mode] || MODES.classic; }
 export const isReview = (mode) => REVIEW_MODES.includes(mode);
 export const isSelfPaced = (mode) => ['classic', 'team', 'mastery', 'test'].includes(mode);
+/* Οι κάρτες μελέτης είναι ξεχωριστό παιχνίδι με δικές του κάρτες (είδος 'card'). Δέχεται παιχνίδι, σύνδεσμο ή μικρή κάρτα λίστας.
+   Παλιά παιχνίδια με τρόπο «κάρτες» και ερωτήσεις κουίζ δεν είναι τράπουλες: παίζονται όπως πριν.
+   Flashcards are a separate game with their own cards (type 'card'). Accepts a game, a link or a list card.
+   Old games in flashcards mode with quiz questions are not decks: they play as before. */
+export function isDeck(g) {
+  if (!g || g.mode !== 'flashcards') return false;
+  if (Array.isArray(g.questions)) return g.questions.every((q) => q && q.type === 'card');
+  return (g.types || []).every((t) => t === 'card');
+}
 export const usesTeams = (mode) => mode === 'team';
 export const unitOf = (mode) => (MODES[mode] && MODES[mode].unit) || '';

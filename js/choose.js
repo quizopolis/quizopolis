@@ -28,7 +28,7 @@ const TIPS = {
   team: __('Παίζουν όλα τα είδη ερωτήσεων. Πόσες ομάδες θα έχει, το διαλέγεις όταν φτιάχνεις τον σύνδεσμο.'),
   mastery: __('Παίζουν όλα τα είδη ερωτήσεων. Τον στόχο (π.χ. 80%) τον διαλέγεις όταν φτιάχνεις τον σύνδεσμο.'),
   test: __('Παίζουν όλα τα είδη ερωτήσεων. Οι απαντήσεις στις ανοιχτές ερωτήσεις φαίνονται στην αναφορά.'),
-  flashcards: __('Κάθε ερώτηση γίνεται κάρτα: μπροστά η ερώτηση, πίσω η σωστή απάντηση και η εξήγηση.'),
+  flashcards: __('Σε κάθε όψη βάζεις κείμενο, εικόνα ή βίντεο. Κάρτες φτιάχνεις και από κείμενο ή από ένα κουίζ σου.'),
   millionaire: __('Κάθε ερώτηση είναι ένα σκαλί. Με 15 ερωτήσεις η σκάλα φτάνει ολόκληρη ως το 1.000.000 €.'),
   jeopardy: __('Οι στήλες του πίνακα είναι οι θεματικές: γράψε θεματική σε κάθε ερώτηση, στο «Θεματική και εξήγηση» (έως 6 στήλες, με έως 5 ερωτήσεις η καθεμιά). Με 6 ή περισσότερες ερωτήσεις, η τελευταία γίνεται τελικός γύρος.'),
   picture: __('Την κρυμμένη εικόνα τη διαλέγεις όταν φτιάχνεις τον σύνδεσμο: από τη συλλογή ή δική σου.'),
@@ -92,10 +92,12 @@ export function stepsHtml(active, id) {
   }).join('')}</ol>`;
 }
 
-/* Το πλέγμα με τα παιχνίδια: σύνδεσμοι στη σελίδα «Νέο παιχνίδι», κουμπιά στο παράθυρο αλλαγής. */
-export function pickGrid(kind, selected) {
+/* Το πλέγμα με τα παιχνίδια: σύνδεσμοι στη σελίδα «Νέο παιχνίδι», κουμπιά στο παράθυρο αλλαγής.
+   opts.cards === false: χωρίς τις κάρτες μελέτης (ξεχωριστό παιχνίδι, όχι τρόπος για ερωτήσεις).
+   The games grid. opts.cards === false: without flashcards (a separate game, not a way to play questions). */
+export function pickGrid(kind, selected, opts = {}) {
   return GROUPS.map((g) => `<section class="pick-g pick-${g.id}" aria-labelledby="pick-h-${g.id}"><div class="pick-hd"><h2 class="pick-h" id="pick-h-${g.id}">${esc(g.title)}</h2><p class="pick-note">${esc(g.note)}</p></div>
-    <ul class="pick-grid">${g.ids.map((id) => {
+    <ul class="pick-grid">${g.ids.filter((id) => opts.cards !== false || id !== 'flashcards').map((id) => {
       const c = choiceOf(id);
       const on = id === selected;
       const inner = `${gameIcon(id, { size: 48 })}<span class="pick-t"><b>${esc(c.label)}</b><span>${esc(c.short)}</span></span>`;
@@ -111,11 +113,11 @@ function labelTile() {
 }
 
 /* Παράθυρο αλλαγής παιχνιδιού. Επιστρέφει τη νέα επιλογή ή null. */
-export function pickDialog(selected) {
+export function pickDialog(selected, opts = {}) {
   let picked = null;
   return dialog({
     title: __('Διάλεξε παιχνίδι'), wide: true,
-    html: `<p class="dlg-text">${__('Οι ερωτήσεις μένουν ίδιες· αλλάζει μόνο το παιχνίδι που προτείνεται όταν φτιάχνεις τον σύνδεσμο.')}</p><div class="pick-dlg">${pickGrid('button', selected)}</div>`,
+    html: `<p class="dlg-text">${__('Οι ερωτήσεις μένουν ίδιες· αλλάζει μόνο το παιχνίδι που προτείνεται όταν φτιάχνεις τον σύνδεσμο.')}</p><div class="pick-dlg">${pickGrid('button', selected, opts)}</div>`,
     actions: [{ label: __('Άκυρο'), value: null }],
     focus: '.pick.is-on, .pick',
     onOpen(dlg, close) {

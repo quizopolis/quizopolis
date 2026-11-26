@@ -1,18 +1,21 @@
 /* Αναφορά ενός παιχνιδιού: επισκόπηση, ανά ερώτηση, ανά μαθητή, πίνακας, εξαγωγή CSV. */
 import { esc, app, setTitle, toast, dialog, num, pct, fmtDate, plural, ICON, errText, download, fmtDuration, copy } from './ui.js';
 import { DB, withImages } from './store.js';
-import { TYPES, isScored } from './qtypes.js';
+import { TYPES, isScored, studyItems } from './qtypes.js';
+import { firstTry, cardFront, cardBack, sidesOf } from './cards.js';
 import { ranking, teamStats, playerStats, TEAM_SET } from './scoring.js';
 import { MODES, usesTeams, isReview, unitOf } from './modes.js';
 import { teacherTop, linkUrl, linkState, LINK_STATE } from './teacher.js';
-import { __ } from './i18n.js';
+import { __, LOCALE } from './i18n.js';
 import { noteReport } from './stats.js';
 
 const teamById = (id) => TEAM_SET.find((t) => t.id === id) || null;
 const NO_POINTS = ['test', 'flashcards'];
+// Κάρτες μελέτης: πράσινο αν την ήξερε αμέσως, κίτρινο αν την έμαθε με επανάληψη, κόκκινο αν δεν την έμαθε ακόμη.
+// Flashcards: green if known straight away, yellow if learned with repetition, red if not learned yet.
 const cellClass = (q, a) => {
   if (!a) return 'gc-none';
-  if (a.known !== undefined) return a.known ? 'gc-ok' : 'gc-bad';
+  if (a.known !== undefined) return firstTry(a) ? 'gc-ok' : a.known ? 'gc-part' : 'gc-bad';
   if (!isScored(q)) return 'gc-info';
   if (a.f === 1) return 'gc-ok';
   if (a.f > 0) return 'gc-part';
@@ -20,7 +23,7 @@ const cellClass = (q, a) => {
 };
 const cellMark = (q, a) => {
   if (!a) return '';
-  if (a.known !== undefined) return a.known ? '✓' : '↻';
+  if (a.known !== undefined) return firstTry(a) ? '✓' : a.known ? '↻' : '✗';
   if (!isScored(q)) return '•';
   return a.f === 1 ? '✓' : a.f > 0 ? Math.round(a.f * 100) : '✗';
 };
@@ -62,6 +65,9 @@ export function viewReport(sid, ctx) {
     const avgAcc = accs.length ? accs.reduce((a, b) => a + b, 0) / accs.length : null;
     const done = players.filter((p) => p.done).length;
     const flash = S.mode === 'flashcards';
+    // Κάρτες: πόσες φορές τις ήξεραν αμέσως, από όσες είδαν. / Cards: how often they were known straight away, of those seen.
+    const cardAns = flash ? players.flatMap((p) => studyItems(qs).map((q) => (p.answers || {})[q.id]).filter(Boolean)) : [];
+    const quickAll = cardAns.length ? cardAns.filter(firstTry).length / cardAns.length : null;
     main.innerHTML = `
       <p class="crumbs"><a href="#/t/link/${esc(sid)}">${ICON.back}${__('Σύνδεσμος')}</a></p>
       <div class="thead rep-head"><div><h1 class="h1">${esc(S.title)}</h1>
@@ -70,11 +76,11 @@ export function viewReport(sid, ctx) {
       <div class="rep-link"><span class="rep-link-t">${ICON.link}<span>${state === 'open' ? __('Ο σύνδεσμος είναι ανοιχτός: τα παιδιά παίζουν ακόμη.') : state === 'closed' ? __('Ο σύνδεσμος είναι κλειστός.') : __('Η προθεσμία του συνδέσμου έληξε.')}</span></span><span class="actions"><button class="btn btn-sm" type="button" data-copy-link>${ICON.copy}${__('Αντιγραφή συνδέσμου')}</button><a class="btn btn-sm" href="#/t/link/${esc(sid)}">${__('Διαχείριση')}</a></span></div>
       <div class="tiles">
         <div class="tile-s"><span class="tile-n">${players.length}</span><span class="tile-l">${players.length === 1 ? __('μαθητής') : __('μαθητές')}</span></div>
-        <div class="tile-s"><span class="tile-n">${flash ? '–' : avgAcc === null ? '–' : pct(avgAcc)}</span><span class="tile-l">${__('μέση ακρίβεια')}</span></div>
+        <div class="tile-s"><span class="tile-n">${flash ? (quickAll === null ? '–' : pct(quickAll)) : avgAcc === null ? '–' : pct(avgAcc)}</span><span class="tile-l">${flash ? __('τις ήξεραν αμέσως') : __('μέση ακρίβεια')}</span></div>
         <div class="tile-s"><span class="tile-n">${done}</span><span class="tile-l">${__('ολοκλήρωσαν')}</span></div>
-        <div class="tile-s"><span class="tile-n">${qs.length}</span><span class="tile-l">${qs.length === 1 ? __('ερώτηση') : __('ερωτήσεις')}</span></div>
+        <div class="tile-s"><span class="tile-n">${qs.length}</span><span class="tile-l">${flash ? (qs.length === 1 ? __('κάρτα') : __('κάρτες')) : qs.length === 1 ? __('ερώτηση') : __('ερωτήσεις')}</span></div>
       </div>
-      ${players.length ? `<div class="rtabs" role="tablist" aria-label="${__('Προβολή')}">${[['overview', __('Επισκόπηση')], ['questions', __('Ανά ερώτηση')], ['students', __('Ανά μαθητή')], ['grid', __('Πίνακας')]].map(([k, l]) =>
+      ${players.length ? `<div class="rtabs" role="tablist" aria-label="${__('Προβολή')}">${[['overview', __('Επισκόπηση')], ['questions', flash ? __('Ανά κάρτα') : __('Ανά ερώτηση')], ['students', __('Ανά μαθητή')], ['grid', __('Πίνακας')]].map(([k, l]) =>
         `<button type="button" role="tab" class="rtab" id="tab-${k}" aria-controls="panel" aria-selected="${tab === k}" tabindex="${tab === k ? 0 : -1}" data-tab="${k}">${l}</button>`).join('')}</div>
       <div class="rpanel" id="panel" role="tabpanel" aria-labelledby="tab-${tab}"></div>`
       : ('<div class="empty"><p class="empty-t">' + __('Δεν έπαιξε ακόμη κανείς.') + '</p><p>' + __('Οι απαντήσεις εμφανίζονται εδώ μόλις μπουν οι μαθητές.') + '</p></div>')}`;
@@ -100,7 +106,7 @@ export function viewReport(sid, ctx) {
         }
       });
       const panel = main.querySelector('#panel');
-      if (tab === 'overview') overview(panel, stats, scored);
+      if (tab === 'overview') overview(panel, stats, flash ? studyItems(qs) : scored);
       if (tab === 'questions') byQuestion(panel);
       if (tab === 'students') byStudent(panel, stats);
       if (tab === 'grid') grid(panel);
@@ -119,19 +125,30 @@ export function viewReport(sid, ctx) {
           <span class="tb-detail">${__('μ.ό. {0} + μπόνους', num(t.avg))} ${num(t.bonus)}</span><b class="tb-total">${num(t.total)}</b></li>`).join('')}</ol></section>`;
     }
     // πιο δύσκολες ερωτήσεις
+    const flash = S.mode === 'flashcards';
     const qStats = scored.map((q) => {
       const ans = players.map((p) => p.answers && p.answers[q.id]).filter(Boolean);
-      const f = ans.length ? ans.reduce((s, a) => s + (a.known !== undefined ? (a.known ? 1 : 0) : (a.f || 0)), 0) / ans.length : null;
+      const f = ans.length ? ans.reduce((s, a) => s + (a.known !== undefined ? (firstTry(a) ? 1 : 0) : (a.f || 0)), 0) / ans.length : null;
       return { q, f, n: ans.length };
     }).filter((x) => x.f !== null).sort((a, b) => a.f - b.f);
     const hard = qStats.filter((x) => x.f < 0.6).slice(0, 4);
+    // Κάρτες: τα παιδιά που χρειάστηκαν επανάληψη στις μισές ή περισσότερες. / Cards: children who needed repetition on half or more.
+    const cardKids = flash ? players.map((p) => {
+      const seen = scored.filter((q) => (p.answers || {})[q.id]);
+      return { p, n: seen.length, f: seen.length ? seen.filter((q) => firstTry(p.answers[q.id])).length / seen.length : null };
+    }) : [];
     html += `<div class="rep-cols">
-      <section class="panel"><h2 class="h3">${__('Χρειάζονται επανάληψη')}</h2>${hard.length ? `<ol class="hard">${hard.map((x) => `<li><span class="hard-p ${x.f < 0.4 ? 'is-low' : ''}">${pct(x.f)}</span><span class="hard-q">${esc(x.q.text || TYPES[x.q.type].label)}<span class="muted"> · ${esc(TYPES[x.q.type].label)}</span></span></li>`).join('')}</ol>`
-        : `<p class="muted">${qStats.length ? __('Όλες οι ερωτήσεις είχαν πάνω από 60% σωστές απαντήσεις.') : __('Δεν υπάρχουν ακόμη απαντήσεις.')}</p>`}</section>
+      <section class="panel"><h2 class="h3">${__('Χρειάζονται επανάληψη')}</h2>${hard.length ? `<ol class="hard">${hard.map((x) => `<li><span class="hard-p ${x.f < 0.4 ? 'is-low' : ''}">${pct(x.f)}</span><span class="hard-q">${flash ? `${esc(cardFront(x.q))}<span class="muted"> · ${esc(__('το ήξεραν αμέσως'))}</span>` : `${esc(x.q.text || TYPES[x.q.type].label)}<span class="muted"> · ${esc(TYPES[x.q.type].label)}</span>`}</span></li>`).join('')}</ol>`
+        : `<p class="muted">${!qStats.length ? __('Δεν υπάρχουν ακόμη απαντήσεις.') : flash ? __('Κάθε κάρτα την ήξερε αμέσως πάνω από το 60% των παιδιών.') : __('Όλες οι ερωτήσεις είχαν πάνω από 60% σωστές απαντήσεις.')}</p>`}</section>
       <section class="panel"><h2 class="h3">${__('Χρειάζονται βοήθεια')}</h2>${(() => {
+        if (flash) {
+          const lowC = cardKids.filter((x) => x.f !== null && x.f < 0.5 && x.n >= 2).sort((a, b) => a.f - b.f);
+          return lowC.length ? `<ul class="plain help-list">${lowC.map((x) => `<li><b>${esc(x.p.name)}</b> <span class="muted">${__('ήξερε αμέσως το {0} από {1} κάρτες', pct(x.f), x.n)}</span></li>`).join('')}</ul>`
+            : `<p class="muted">${__('Κανένα παιδί δεν χρειάστηκε επανάληψη στις μισές κάρτες.')}</p>`;
+        }
         const low = stats.filter((x) => x.s.acc !== null && x.s.acc < 0.5 && x.s.scored >= 2).sort((a, b) => a.s.acc - b.s.acc);
         return low.length ? `<ul class="plain help-list">${low.map((x) => `<li><b>${esc(x.p.name)}</b> <span class="muted">${pct(x.s.acc)} ${__('σωστά σε {0} ερωτήσεις', x.s.scored)}</span></li>`).join('')}</ul>`
-          : `<p class="muted">${S.mode === 'flashcards' ? __('Δες τον πίνακα για το τι ήξερε το κάθε παιδί.') : __('Κανένας μαθητής κάτω από 50%.')}</p>`;
+          : `<p class="muted">${__('Κανένας μαθητής κάτω από 50%.')}</p>`;
       })()}</section></div>`;
     // κατάταξη
     const ranked = ranking(players);
@@ -139,13 +156,33 @@ export function viewReport(sid, ctx) {
       const st = playerStats(p, qs);
       const t = ctxT.teamOfP(p);
       return `<li><span class="b-rank">${noPts ? '' : i + 1}</span><span class="b-name">${esc(p.name)}${t ? ` <span class="dot" style="--t:${t.color}"></span><span class="muted">${esc(t.name)}</span>` : ''}${p.result && p.result.short ? `<span class="b-res">${esc(p.result.short)}${(p.plays || 0) > 1 ? ` ${__('· {0} φορές', p.plays)}` : ''}</span>` : ''}</span>
-        <span class="b-acc">${S.mode === 'flashcards' ? `${p.correct || 0} ${__('ήξερε')}` : st.acc === null ? '–' : pct(st.acc)}</span>${noPts ? '' : `<b class="b-score">${num(p.score || 0)}${ctxT.unit ? ` ${ctxT.unit}` : ''}</b>`}</li>`;
+        <span class="b-acc">${flash ? __('έμαθε {0} από {1}', p.correct || 0, scored.length) : st.acc === null ? '–' : pct(st.acc)}</span>${noPts ? '' : `<b class="b-score">${num(p.score || 0)}${ctxT.unit ? ` ${ctxT.unit}` : ''}</b>`}</li>`;
     }).join('')}</ol></section>`;
     panel.innerHTML = html;
   }
 
+  /* ---------- ανά κάρτα (κάρτες μελέτης) / per card (flashcards) ---------- */
+  function byCard(panel) {
+    const items = studyItems(S.questions);
+    const img = (src) => (src ? `<img class="rq-cimg" src="${esc(src)}" alt="">` : '');
+    const vid = (o) => (o && o.video && o.video.url ? `<span class="rq-vid">${ICON.play}${__('βίντεο')}</span>` : '');
+    panel.innerHTML = items.map((q, i) => {
+      const ans = players.map((p) => (p.answers || {})[q.id]).filter(Boolean);
+      const f = ans.length ? ans.filter(firstTry).length / ans.length : null;
+      const times = ans.length ? ans.reduce((x, a) => x + (a.n || 1), 0) / ans.length : null;
+      const sides = q.type === 'card' ? sidesOf(q) : null;
+      const back = cardBack(q);
+      return `<article class="panel rq rq-card"><header class="rq-head"><span class="qe-n">${i + 1}</span><span class="rq-type">${TYPES.card.icon}${esc(TYPES.card.label)}</span>
+          ${f !== null ? `<span class="rq-pct ${f < 0.4 ? 'is-low' : f < 0.7 ? 'is-mid' : 'is-high'}">${pct(f)} ${__('το ήξεραν αμέσως')}</span>` : ''}</header>
+        <div class="rq-sides"><div class="rq-side"><span class="rq-sl">${__('Μπροστά')}</span><p class="rq-st">${esc(cardFront(q))}</p>${img(sides ? sides.front.image : q.image)}${vid(sides && sides.front)}</div>
+          <div class="rq-side"><span class="rq-sl">${__('Πίσω')}</span><p class="rq-st">${back ? esc(back) : '–'}</p>${img(sides ? sides.back.image : '')}${vid(sides && sides.back)}</div></div>
+        <p class="rq-meta">${ans.length === 1 ? __('Τη μελέτησε 1 παιδί') : __('Τη μελέτησαν {0} παιδιά', ans.length)}${times === null ? '' : f === 1 ? ` ${__('· την ήξεραν όλοι με την πρώτη')}` : Math.round(times * 10) === 10 ? ` ${__('· ήρθε μία φορά')}` : ` ${__('· ήρθε κατά μέσο όρο {0} φορές', (Math.round(times * 10) / 10).toLocaleString(LOCALE))}`}</p></article>`;
+    }).join('') || `<p class="muted">${__('Δεν υπάρχουν κάρτες.')}</p>`;
+  }
+
   /* ---------- ανά ερώτηση ---------- */
   function byQuestion(panel) {
+    if (S.mode === 'flashcards') { byCard(panel); return; }
     const qs = S.questions || [];
     panel.innerHTML = qs.map((q, i) => {
       const t = TYPES[q.type];
@@ -176,6 +213,21 @@ export function viewReport(sid, ctx) {
     const noPts = NO_POINTS.includes(S.mode);
     const tt = teamTotals();
     const rows = stats.slice().sort((a, b) => String(a.p.name).localeCompare(String(b.p.name), 'el'));
+    if (S.mode === 'flashcards') {
+      const items = studyItems(qs);
+      panel.innerHTML = `<div class="panel panel-flush"><table class="tbl tbl-click"><thead><tr><th scope="col">${__('Όνομα')}</th><th scope="col">${__('Έμαθε')}</th><th scope="col">${__('Ήξερε αμέσως')}</th><th scope="col">${__('Χρόνος')}</th><th scope="col"><span class="sr">${__('Λεπτομέρειες')}</span></th></tr></thead>
+        <tbody>${rows.map(({ p }) => {
+          const time = Object.values(p.answers || {}).reduce((sum, a) => sum + (a.t || 0), 0) / 1000;
+          const quick = items.filter((q) => firstTry((p.answers || {})[q.id])).length;
+          return `<tr><td class="t-name">${esc(p.name)}${p.done ? (' <span class="done" title="' + __('Ολοκλήρωσε') + '">✓</span>') : ''}</td><td>${Math.min(items.length, p.correct || 0)}/${items.length}</td><td>${quick}</td>
+            <td>${time ? fmtDuration(time) : '–'}</td><td><button type="button" class="btn btn-sm" data-st="${esc(p.uid)}">${__('Κάρτες')}</button></td></tr>`;
+        }).join('')}</tbody></table></div>`;
+      panel.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-st]');
+        if (b) studentDialog(players.find((p) => p.uid === b.dataset.st));
+      });
+      return;
+    }
     panel.innerHTML = `<div class="panel panel-flush"><table class="tbl tbl-click"><thead><tr><th scope="col">${__('Όνομα')}</th>${usesTeams(S.mode) ? ('<th scope="col">' + __('Ομάδα') + '</th>') : ''}
       ${ctxT.review ? ('<th scope="col">' + __('Αποτέλεσμα') + '</th><th scope="col">' + __('Φορές') + '</th>') : ''}<th scope="col">${__('Απάντησε')}</th><th scope="col">${S.mode === 'flashcards' ? __('Ήξερε') : __('Σωστές')}</th><th scope="col">${__('Ακρίβεια')}</th>${noPts ? '' : ('<th scope="col" class="num">' + __('Πόντοι') + '</th>')}${tt ? ('<th scope="col" class="num">' + __('Πόντοι ομάδας') + '</th>') : ''}<th scope="col">${__('Χρόνος')}</th><th scope="col"><span class="sr">${__('Λεπτομέρειες')}</span></th></tr></thead>
       <tbody>${rows.map(({ p, s }) => {
@@ -193,6 +245,19 @@ export function viewReport(sid, ctx) {
   function studentDialog(p) {
     if (!p) return;
     const qs = S.questions || [];
+    if (S.mode === 'flashcards') {
+      dialog({
+        title: p.name, wide: true,
+        html: `<ol class="rv-list rv-light">${studyItems(qs).map((q, i) => {
+          const a = (p.answers || {})[q.id];
+          const back = cardBack(q);
+          const what = !a ? __('Δεν την είδε ακόμη') : firstTry(a) ? __('Την ήξερε αμέσως') : a.known ? __('Την έμαθε μετά από επανάληψη ({0} φορές)', a.n || 2) : __('Δεν την έμαθε ακόμη');
+          return `<li class="rv ${cellClass(q, a).replace('gc-', 'rv-')}"><span class="rv-mark" aria-hidden="true">${cellMark(q, a) || '–'}</span><div class="rv-body">
+            <p class="rv-q">${i + 1}. ${esc(cardFront(q))}</p><p class="rv-a">${esc(what)}</p>${back ? `<p class="rv-a muted">${__('Πίσω:')} <b>${esc(back)}</b></p>` : ''}</div></li>`;
+        }).join('')}</ol>`
+      });
+      return;
+    }
     dialog({
       title: p.name, wide: true,
       html: `<ol class="rv-list rv-light">${qs.map((q, i) => {
@@ -209,25 +274,30 @@ export function viewReport(sid, ctx) {
 
   /* ---------- πίνακας μαθητές × ερωτήσεις ---------- */
   function grid(panel) {
-    const qs = S.questions || [];
+    const flash = S.mode === 'flashcards';
+    const qs = flash ? studyItems(S.questions) : S.questions || [];
     const rows = players.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'el'));
     const colPct = qs.map((q) => {
       const ans = rows.map((p) => (p.answers || {})[q.id]).filter(Boolean);
-      if (S.mode === 'flashcards') return ans.length ? ans.filter((a) => a.known).length / ans.length : null;
+      if (flash) return ans.length ? ans.filter(firstTry).length / ans.length : null;
       const sc = ans.filter((a) => a.f !== null && a.f !== undefined);
       return isScored(q) && sc.length ? sc.reduce((s, a) => s + a.f, 0) / sc.length : null;
     });
-    panel.innerHTML = `<div class="grid-legend"><span><i class="gc-ok"></i>${__('σωστό')}</span><span><i class="gc-part"></i>${__('μερικώς σωστό (%)')}</span><span><i class="gc-bad"></i>${__('λάθος')}</span><span><i class="gc-info"></i>${__('χωρίς βαθμό')}</span><span><i class="gc-none"></i>${__('δεν απάντησε')}</span></div>
-      <div class="grid-wrap"><table class="grid"><thead><tr><th scope="col" class="g-name">${__('Μαθητής')}</th>${qs.map((q, i) => `<th scope="col" title="${esc(q.text || TYPES[q.type].label)}"><span class="g-qn">${i + 1}</span><span class="g-qp">${colPct[i] === null ? '' : pct(colPct[i])}</span></th>`).join('')}</tr></thead>
+    const legend = flash
+      ? `<span><i class="gc-ok"></i>${__('την ήξερε αμέσως')}</span><span><i class="gc-part"></i>${__('την έμαθε με επανάληψη')}</span><span><i class="gc-bad"></i>${__('δεν την έμαθε ακόμη')}</span><span><i class="gc-none"></i>${__('δεν την είδε')}</span>`
+      : `<span><i class="gc-ok"></i>${__('σωστό')}</span><span><i class="gc-part"></i>${__('μερικώς σωστό (%)')}</span><span><i class="gc-bad"></i>${__('λάθος')}</span><span><i class="gc-info"></i>${__('χωρίς βαθμό')}</span><span><i class="gc-none"></i>${__('δεν απάντησε')}</span>`;
+    panel.innerHTML = `<div class="grid-legend">${legend}</div>
+      <div class="grid-wrap"><table class="grid"><thead><tr><th scope="col" class="g-name">${__('Μαθητής')}</th>${qs.map((q, i) => `<th scope="col" title="${esc(flash ? cardFront(q) : q.text || TYPES[q.type].label)}"><span class="g-qn">${i + 1}</span><span class="g-qp">${colPct[i] === null ? '' : pct(colPct[i])}</span></th>`).join('')}</tr></thead>
       <tbody>${rows.map((p) => `<tr><th scope="row" class="g-name">${esc(p.name)}</th>${qs.map((q, i) => {
         const a = (p.answers || {})[q.id];
-        const tip = a ? (a.known !== undefined ? (a.known ? __('Το ήξερε') : __('Επανάληψη')) : TYPES[q.type].describe(q, a.v)) : __('Δεν απάντησε');
+        const tip = a ? (a.known !== undefined ? (firstTry(a) ? __('Την ήξερε αμέσως') : a.known ? __('Την έμαθε με επανάληψη') : __('Δεν την έμαθε ακόμη')) : TYPES[q.type].describe(q, a.v)) : flash ? __('Δεν την είδε') : __('Δεν απάντησε');
         return `<td class="gc ${cellClass(q, a)}" title="${esc(`${i + 1}. ${tip}`)}">${cellMark(q, a)}</td>`;
       }).join('')}</tr>`).join('')}</tbody></table></div>`;
   }
 
   /* ---------- CSV και αντιγραφή ---------- */
   function tableRows() {
+    if (S.mode === 'flashcards') return cardRows();
     const qs = S.questions || [];
     const tt = teamTotals();
     const head = [__('Όνομα'), __('Ομάδα'), ctxT.unit === '€' ? __('Ποσό €') : __('Πόντοι'), __('Πόντοι ομάδας'), __('Αποτέλεσμα'), __('Φορές'), __('Σωστές'), __('Απαντήσεις'), __('Ακρίβεια %'), __('Ολοκλήρωσε')];
@@ -247,6 +317,20 @@ export function viewReport(sid, ctx) {
     });
     rows.push([]);
     qs.forEach((q, i) => rows.push([__('Ε{0}', i + 1), q.text || TYPES[q.type].label, TYPES[q.type].scored ? `${__('Σωστό:')} ${TYPES[q.type].correct(q)}` : '']));
+    return rows;
+  }
+  /* Κάρτες μελέτης: ένα παιδί σε κάθε γραμμή, μία στήλη για κάθε κάρτα. / Flashcards: one child per row, one column per card. */
+  function cardRows() {
+    const items = studyItems(S.questions);
+    const head = [__('Όνομα'), __('Έμαθε'), __('Ήξερε αμέσως'), __('Ολοκλήρωσε')].concat(items.map((q, i) => __('Κ{0}', i + 1)));
+    const rows = [head];
+    players.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), 'el')).forEach((p) => {
+      const ans = p.answers || {};
+      rows.push([p.name, Math.min(items.length, p.correct || 0), items.filter((q) => firstTry(ans[q.id])).length, p.done ? __('ναι') : __('όχι')]
+        .concat(items.map((q) => { const a = ans[q.id]; return !a ? '' : firstTry(a) ? __('αμέσως') : a.known ? __('με επανάληψη') : __('όχι ακόμη'); })));
+    });
+    rows.push([]);
+    items.forEach((q, i) => rows.push([__('Κ{0}', i + 1), cardFront(q), cardBack(q)]));
     return rows;
   }
   function exportCsv() {

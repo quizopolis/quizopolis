@@ -65,13 +65,17 @@ export function makeError(message, code) {
    opens at once and the pictures arrive while the child types their name. */
 export const mediaId = (sid) => sid + '-img';
 const isData = (v) => typeof v === 'string' && /^data:image\//.test(v);
+const BACK = '_b'; // η πίσω όψη μιας κάρτας / a card's back side
 export function splitImages(s) {
   const images = {};
   const questions = (s.questions || []).map((q) => {
-    if (!q || !isData(q.image)) return q;
-    images[q.id] = q.image;
+    if (!q) return q;
+    const front = isData(q.image);
+    const back = !!(q.back && isData(q.back.image));
+    if (!front && !back) return q;
     const c = Object.assign({}, q);
-    delete c.image;
+    if (front) { images[q.id] = q.image; delete c.image; }
+    if (back) { images[q.id + BACK] = q.back.image; c.back = Object.assign({}, q.back); delete c.back.image; }
     return c;
   });
   let settings = s.settings;
@@ -85,7 +89,18 @@ export function splitImages(s) {
 }
 export function withImages(s, images) {
   if (!s || !images) return s;
-  const out = Object.assign({}, s, { questions: (s.questions || []).map((q) => (q && !q.image && images[q.id] ? Object.assign({}, q, { image: images[q.id] }) : q)) });
+  const out = Object.assign({}, s, {
+    questions: (s.questions || []).map((q) => {
+      if (!q) return q;
+      const front = !q.image && images[q.id];
+      const back = q.back && typeof q.back === 'object' && !q.back.image && images[q.id + BACK];
+      if (!front && !back) return q;
+      const c = Object.assign({}, q);
+      if (front) c.image = front;
+      if (back) c.back = Object.assign({}, q.back, { image: back });
+      return c;
+    })
+  });
   const pic = out.settings && out.settings.picture;
   if (images['@picture'] && pic && typeof pic === 'object' && !pic.image) out.settings = Object.assign({}, out.settings, { picture: Object.assign({}, pic, { image: images['@picture'] }) });
   return out;

@@ -1,7 +1,7 @@
 /* Η πλευρά του μαθητή: είσοδος από σύνδεσμο, παιχνίδι σε όλους τους τρόπους, τέλος. */
 import { esc, app, setTitle, toast, num, pct, plural, norm, shuffle, local, ICON, errText, LOGO, CFG, langSwitch, exitHref } from './ui.js';
 import { DB, withImages } from './store.js';
-import { TYPES, grade, isScored, parseCloze } from './qtypes.js';
+import { TYPES, grade, isScored, studyItems } from './qtypes.js';
 import { points, ranking, teamStats, POWERUPS, TEAM_SET, pickTeam } from './scoring.js';
 import { MODES, isReview, unitOf } from './modes.js';
 import { __, LOCALE } from './i18n.js';
@@ -72,6 +72,16 @@ function teamBadge(t) {
   return t ? `<span class="team-badge" style="--t:${t.color}"><span aria-hidden="true">${t.emoji}</span> ${esc(t.name)}</span>` : '';
 }
 const fmtScore = (n, mode) => `${num(n || 0)}${unitOf(mode) ? ` ${unitOf(mode)}` : ''}`;
+/* Κάρτες μελέτης: «την ήξερε αμέσως», δηλαδή με την πρώτη φορά που τη σημείωσε. Ίδιο με το cards.js.
+   Flashcards: "knew it straight away", i.e. the first time it was marked. Same as in cards.js. */
+const firstTry = (a) => !!a && (a.first !== undefined ? !!a.first : !!a.known && (a.n || 1) === 1);
+/* Σύντομο κείμενο μιας όψης για λίστες. / Short text of a side for lists. */
+const sideText = (o) => String((o && o.text) || '').replace(/\s+/g, ' ').trim() || (o && o.image ? __('(εικόνα)') : o && o.video && o.video.url ? __('(βίντεο)') : '');
+const cardTexts = (q) => {
+  if (q.type === 'card') return { front: sideText(q), back: sideText(q.back) };
+  const t = TYPES[q.type];
+  return { front: String(q.text || '').trim() || (t ? t.label : ''), back: t ? String(t.correct(q) || '') : '' };
+};
 
 /* Ο παίκτης που μόλις γράφτηκε περνά κατευθείαν στο παιχνίδι, χωρίς νέα ανάγνωση.
    The player who just joined goes straight into the game, without another read. */
@@ -114,6 +124,8 @@ export async function viewJoin(sid, ctx) {
     playersP = mineP.then((m) => (m && m.name ? [] : DB.listPlayers(sid).catch(() => [])));
     s = await firstSession(sid);
     imagesFor(s).catch(() => {});
+    // Οι κάρτες μελέτης κατεβαίνουν όσο το παιδί γράφει το όνομά του. / Flashcards download while the child types their name.
+    if (s && s.mode === 'flashcards') import('./cards.js').catch(() => {});
   } catch (e) { fail(__('Δεν άνοιξε το παιχνίδι'), errText(e), true); return; }
   if (!s) {
     if (DB.mode === 'demo') fail(__('Ο σύνδεσμος δεν υπάρχει σε αυτόν τον browser'), __('Η πλατφόρμα λειτουργεί δοκιμαστικά: κάθε σύνδεσμος ανοίγει μόνο στον browser όπου φτιάχτηκε. Για να παίζουν τα παιδιά από τις συσκευές τους, ο εκπαιδευτικός πρέπει να τη συνδέσει με τη δωρεάν βάση Firebase.'));
@@ -185,10 +197,13 @@ export function viewPlay(sid, ctx, opts = {}) {
   el.innerHTML = shell(('<div class="pl-card"><p class="pl-loading"><span class="spinner" aria-hidden="true"></span> ' + __('Φορτώνει…') + '</p></div>'));
   let uid = null, P = null, S = null, engine = null, unsub = null, stopped = false, screen = '';
 
-  const write = (patch) => DB.updatePlayer(sid, uid, patch).catch((e) => {
+  // «Ξαναπαίξε» στο κουίζ: ο νέος γύρος μένει στη συσκευή και γράφεται μία φορά στο τέλος, μόνο αν είναι καλύτερος.
+  // "Play again" in a quiz: the new round stays on the device and is written once at the end, only if it is better.
+  let round = null;
+  const write = (patch) => (round ? Promise.resolve() : DB.updatePlayer(sid, uid, patch).catch((e) => {
     if (e.code === 'ended' || e.code === 'kicked') return;
     toast(errText(e), 'error');
-  });
+  }));
   const stopEngine = () => { if (engine) { try { engine.stop(); } catch (e) { /* ignore */ } engine = null; } };
 
   async function boot() {
@@ -496,6 +511,7 @@ export function viewPlay(sid, ctx, opts = {}) {
     };
   }
   function markDone() {
+    if (round) { closeRound(); return; }
     if (!P.done) {
       P.done = true;
       P.doneAt = Date.now();
@@ -503,72 +519,64 @@ export function viewPlay(sid, ctx, opts = {}) {
     }
   }
 
-  /* ---------- κάρτες μελέτης ---------- */
+  function playAgain() {
+    opts.board = false;
+    stopBoard();
+    if (isReview(S.mode)) { P.done = false; screen = ''; start(); return; }
+    // Κουίζ: φυλάμε την καλύτερη προσπάθεια και ξεκινάμε από την αρχή, με νέα σειρά ερωτήσεων.
+    // Quiz: keep the best attempt and start over, with a new question order.
+    round = { best: { answers: P.answers, score: P.score || 0, correct: P.correct || 0, answered: P.answered || 0, streak: P.streak || 0, bestStreak: P.bestStreak || 0, powers: P.powers || [], plays: P.plays || 1, doneAt: P.doneAt } };
+    Object.assign(P, { answers: {}, score: 0, correct: 0, answered: 0, streak: 0, powers: [], done: false, lastRound: null });
+    local.set(`qz:order:${sid}:${uid}`, null);
+    screen = '';
+    start();
+  }
+  function closeRound() {
+    const best = round.best;
+    round = null;
+    const plays = (best.plays || 1) + 1;
+    const R = { score: P.score || 0, correct: P.correct || 0, answers: P.answers };
+    if (R.score > best.score || (R.score === best.score && R.correct > best.correct)) {
+      Object.assign(P, { plays, done: true, doneAt: best.doneAt || Date.now(), bestStreak: Math.max(P.bestStreak || 0, best.bestStreak) });
+      write({ answers: P.answers, score: P.score, correct: P.correct, answered: P.answered, streak: P.streak || 0, bestStreak: P.bestStreak, powers: P.powers || [], plays, done: true });
+    } else {
+      Object.assign(P, best, { plays, done: true });
+      write({ plays });
+    }
+    P.lastRound = R;
+  }
+
+  /* ---------- κάρτες μελέτης (φορτώνονται μόνο όταν χρειάζονται, από το cards.js) ----------
+     Flashcards (loaded only when needed, from cards.js) */
   function cardsEngine() {
-    const qs = (S.questions || []).filter((q) => TYPES[q.type] && TYPES[q.type].scored);
-    const byId = {};
-    qs.forEach((q) => { byId[q.id] = q; });
-    const key = `qz:cards:${sid}:${uid}`;
-    let queue = local.get(key, null);
-    if (!Array.isArray(queue)) {
-      const all = (S.settings && S.settings.shuffleQ) ? shuffle(qs.map((q) => q.id)) : qs.map((q) => q.id);
-      queue = all.filter((id) => !(P.answers[id] && P.answers[id].known));
-    }
-    let alive = true;
-    function front(q) {
-      if (q.type === 'dropdown' || q.type === 'drag') {
-        return esc(q.text) + '<br>' + parseCloze(q.cloze || '').map((p) => (p.blank ? '<span class="cz-blank">…</span>' : esc(p.t))).join('');
-      }
-      if (q.type === 'underline') return `${esc(q.text)}<br><span class="flash-passage">${esc(String(q.passage || '').replace(/[[\]]/g, ''))}</span>`;
-      return esc(q.text);
-    }
-    function show() {
-      if (!alive) return;
-      queue = queue.filter((id) => byId[id]);
-      local.set(key, queue);
-      const known = qs.filter((q) => P.answers[q.id] && P.answers[q.id].known).length;
-      if (!queue.length) {
-        markDone();
-        screen = 'cards-done';
-        el.innerHTML = shell(`<div class="pl-card"><p class="pl-kicker">${__('Κάρτες μελέτης')}</p><h1 class="pl-title">${__('Τις ήξερες όλες!')}</h1>
-          <p class="pl-text">${known} ${__('από {0} κάρτες.', qs.length)}</p>
-          <p class="end-actions"><button class="btn btn-sun btn-lg" type="button" data-again>${__('Ξανά από την αρχή')}</button> <a class="btn btn-ghost-light btn-lg" href="${exitHref(S)}">${__('Έξοδος')}</a></p></div>`);
-        el.querySelector('[data-again]').addEventListener('click', () => { queue = shuffle(qs.map((q) => q.id)); show(); });
-        return;
-      }
-      screen = 'cards';
-      const q = byId[queue[0]];
-      el.innerHTML = `<div class="game"><div class="game-bar"><a class="g-btn" href="${exitHref(S)}">${ICON.back}<span class="hide-sm">${__('Έξοδος')}</span></a>
-        <span class="game-count">${__('Ήξερες {0} από {1}, απομένουν', known, qs.length)} ${queue.length}</span><span></span></div>
-        <div class="game-body"><button type="button" class="flash" aria-pressed="false">
-          <span class="flash-face flash-front"><span class="flash-tag">${__('Ερώτηση')}</span><span class="flash-text">${front(q)}</span>${TYPES[q.type].face ? TYPES[q.type].face(q) : q.image ? `<img class="q-img" src="${esc(q.image)}" alt="">` : ''}<span class="flash-hint">${__('Πάτα για να δεις την απάντηση')}</span></span>
-          <span class="flash-face flash-back"><span class="flash-tag">${__('Απάντηση')}</span>${TYPES[q.type].back ? TYPES[q.type].back(q) : `<span class="flash-text">${esc(TYPES[q.type].correct(q))}</span>`}${q.explain ? `<span class="flash-ex">${esc(q.explain)}</span>` : ''}</span>
-        </button>
-        <div class="flash-actions" hidden><button class="btn btn-lg btn-ghost-light" type="button" data-k="0">${__('Θέλω επανάληψη')}</button><button class="btn btn-lg btn-sun" type="button" data-k="1">${__('Το ήξερα')}</button></div></div></div>`;
-      const card = el.querySelector('.flash');
-      const acts = el.querySelector('.flash-actions');
-      card.addEventListener('click', () => {
-        const on = card.getAttribute('aria-pressed') !== 'true';
-        card.setAttribute('aria-pressed', String(on));
-        acts.hidden = false;
+    let inner = null, cancelled = false;
+    screen = 'cards';
+    el.innerHTML = shell(('<div class="pl-card"><p class="pl-loading"><span class="spinner" aria-hidden="true"></span> ' + __('Ετοιμάζονται οι κάρτες…') + '</p></div>'));
+    import('./cards.js').then((mod) => {
+      if (cancelled || stopped) return;
+      inner = mod.startCards({
+        el, S, P, sid, uid, exit: exitHref(S), write, markDone,
+        onEnd() { if (cancelled || stopped) return; cancelled = true; engine = null; showEnd(); },
+        empty() {
+          el.innerHTML = shell(`<div class="pl-card"><h1 class="pl-title">${__('Δεν υπάρχουν κάρτες')}</h1><p class="pl-text">${__('Αυτό το παιχνίδι δεν έχει ακόμη κάρτες για μελέτη.')}</p>${DB.sandbox ? `<p><a class="btn btn-sun btn-lg" href="${exitHref(S)}">${__('Πίσω')}</a></p>` : ''}</div>`);
+        }
       });
-      acts.addEventListener('click', (e) => {
-        const b = e.target.closest('[data-k]');
-        if (!b) return;
-        const knew = b.dataset.k === '1';
-        const n = ((P.answers[q.id] && P.answers[q.id].n) || 0) + 1;
-        P.answers[q.id] = { v: null, f: null, known: knew, n, pts: 0, t: 0 };
-        queue.shift();
-        if (!knew) queue.splice(Math.min(3, queue.length), 0, q.id);
-        const k2 = qs.filter((x) => P.answers[x.id] && P.answers[x.id].known).length;
-        P.correct = k2;
-        P.answered = Object.keys(P.answers).length;
-        write({ answers: { [q.id]: P.answers[q.id] }, correct: k2, answered: P.answered });
-        show();
-      });
-    }
-    show();
-    return { stop() { alive = false; } };
+    }).catch((e) => { if (!cancelled) fatal(__('Δεν φόρτωσαν οι κάρτες. Έλεγξε τη σύνδεση και ανανέωσε τη σελίδα.')); console.error(e); });
+    return { stop() { cancelled = true; if (inner && inner.stop) inner.stop(); } };
+  }
+  /* «Μελέτησε ξανά»: νέος γύρος με όλες τις κάρτες ή μόνο με όσες χρειάστηκαν επανάληψη.
+     "Study again": a new round with every card or only those that needed repetition. */
+  async function studyAgain(ids) {
+    if (!ids.length) return;
+    try {
+      const mod = await import('./cards.js');
+      mod.newRound(sid, uid, ids, !S.settings || S.settings.shuffleQ !== false);
+    } catch (e) { toast(__('Δεν φόρτωσαν οι κάρτες. Έλεγξε τη σύνδεση και ανανέωσε τη σελίδα.'), 'error'); return; }
+    if (stopped) return;
+    opts.board = false;
+    stopBoard();
+    screen = '';
+    start();
   }
 
   /* ---------- παιχνίδια επανάληψης (φορτώνονται όταν χρειάζονται) ---------- */
@@ -614,10 +622,34 @@ export function viewPlay(sid, ctx, opts = {}) {
     const qs = s.questions || [];
     const scored = qs.filter(isScored);
     const review = isReview(mode);
-    const paused = !!opts.board && !P.done && isOpen(s); // βγήκε στη μέση και μπορεί να συνεχίσει / left mid-game, may continue
+
     const withBoard = st.leaderboard !== false && mode !== 'flashcards' && (mode !== 'test' || st.showResults !== false);
     const kid = !DB.sandbox; // όχι δοκιμή του εκπαιδευτικού ή του επισκέπτη / not a teacher's or visitor's test
-    const acc = scored.length ? scored.reduce((sum, q) => sum + ((P.answers[q.id] && P.answers[q.id].f) || 0), 0) / scored.length : null;
+    const R = P.lastRound || null; // ο γύρος που μόλις παίχτηκε, αν ήταν «Ξαναπαίξε» / the round just played, after "Play again"
+    const ans = R ? R.answers : P.answers;
+    // Κάρτες μελέτης: ο γύρος αυτής της συσκευής (ή, αν λείπει, οι πρώτες σημειώσεις του παιδιού).
+    // Flashcards: this device's round (or, without one, the child's first marks).
+    const flash = mode === 'flashcards';
+    let cards = null;
+    if (flash) {
+      const items = studyItems(qs);
+      const byId = new Map(items.map((q) => [q.id, q]));
+      const R0 = local.get(`qz:cards:${sid}:${uid}`, null);
+      const round = R0 && R0.v === 2 && Array.isArray(R0.queue) && Array.isArray(R0.known) ? R0 : null;
+      const learned = items.filter((q) => ans[q.id] && ans[q.id].known).length;
+      if (round) {
+        const missed = (round.missed || []).filter((id) => byId.has(id));
+        const total = Math.min(items.length, Math.max(round.total || 0, round.queue.length + round.known.length)) || items.length;
+        cards = { items, total, learned: round.known.filter((id) => byId.has(id)).length, missed, quick: round.known.filter((id) => byId.has(id) && !missed.includes(id)).length, done: !round.queue.length };
+      } else {
+        const missed = items.filter((q) => ans[q.id] && !firstTry(ans[q.id])).map((q) => q.id);
+        cards = { items, total: items.length, learned, missed, quick: items.filter((q) => firstTry(ans[q.id])).length, done: !!P.done };
+      }
+    }
+    // Βγήκε στη μέση και μπορεί να συνεχίσει. Στις κάρτες μετράει ο γύρος, γιατί μπορεί να μελετά ξανά.
+    // Left mid-game and may continue. For flashcards the round counts, since they may be studying again.
+    const paused = !!opts.board && isOpen(s) && (flash ? !cards.done : !P.done);
+    const acc = scored.length ? scored.reduce((sum, q) => sum + ((ans[q.id] && ans[q.id].f) || 0), 0) / scored.length : null;
 
     let finished = null; // όσοι τελείωσαν, από τη βάση / finished players, from the database
     const everyone = () => {
@@ -634,8 +666,7 @@ export function viewPlay(sid, ctx, opts = {}) {
       if (finished === null) return `<p class="end-note end-note-sm"><span class="spinner" aria-hidden="true"></span> ${__('Φορτώνει η κατάταξη…')}</p>`;
       if (!list.length) return `<p class="end-note end-note-sm">${__('Δεν έχει τελειώσει ακόμη κανείς.')}</p>`;
       const me = list.find((b) => b.uid === uid);
-      return `<p class="end-note end-note-sm">${plural(list.length, __('παιδί τελείωσε'), __('παιδιά τελείωσαν'))}${isOpen(s) ? ` ${__('μέχρι τώρα. Η κατάταξη αλλάζει όσο τελειώνουν και οι υπόλοιποι.')}` : '.'}</p>
-        <ol class="board">${list.slice(0, 10).map((b) => row(b)).join('')}${me && me.rank > 10 ? row(me, true) : ''}</ol>`;
+      return `<ol class="board">${list.slice(0, 10).map((b) => row(b)).join('')}${me && me.rank > 10 ? row(me, true) : ''}</ol>`;
     };
     const teams = mode === 'team' && Array.isArray(s.teams) && withBoard;
     const teamInner = () => {
@@ -645,10 +676,10 @@ export function viewPlay(sid, ctx, opts = {}) {
         ${P.team ? `<p class="end-note">${__('Οι πόντοι της ομάδας σου ({0}) γράφονται σε όλα τα μέλη της. Η ομάδα μαζεύει πόντους όσο παίζουν τα μέλη της.', num((ts.find((t) => t.id === P.team) || {}).total || 0))}${isOpen(s) ? ` ${__('Μετράνε όσα μέλη έχουν τελειώσει.')}` : ''}</p>` : ''}`;
     };
 
-    const answeredQs = review ? qs.filter((q) => P.answers[q.id]) : qs;
-    const showReview = !paused && mode !== 'flashcards' && (mode !== 'test' || st.showResults) && answeredQs.length;
+    const answeredQs = review ? qs.filter((q) => ans[q.id]) : qs;
+    const showReview = !paused && !flash && (mode !== 'test' || st.showResults) && answeredQs.length;
     const reviewHtml = showReview ? `<section class="end-sec review"><h2 class="end-h">${__('Οι απαντήσεις σου')}</h2><ol class="rv-list">${answeredQs.map((q) => {
-      const a = P.answers[q.id];
+      const a = ans[q.id];
       const t = TYPES[q.type];
       const f = a ? a.f : null;
       const cls = !t.scored ? 'rv-n' : f === 1 ? 'rv-ok' : f > 0 ? 'rv-part' : 'rv-bad';
@@ -657,20 +688,32 @@ export function viewPlay(sid, ctx, opts = {}) {
         <p class="rv-a">${__('Απάντησες:')} <b>${a ? esc(t.describe(q, a.v)) : __('δεν απάντησες')}</b>${a && a.pts && !review ? ` <span class="rv-pts">+${num(a.pts)}</span>` : ''}</p>
         ${t.scored && f !== 1 ? `<p class="rv-a">${__('Σωστό:')} <b>${esc(t.correct(q))}</b></p>` : ''}${q.explain ? `<p class="rv-x">${esc(q.explain)}</p>` : ''}</div></li>`;
     }).join('')}</ol></section>` : '';
+    // Οι κάρτες που χρειάστηκαν επανάληψη, για να τις ξαναδεί. / The cards that needed repetition, to look at again.
+    const missedQs = flash && !paused ? cards.missed.map((id) => cards.items.find((q) => q.id === id)).filter(Boolean) : [];
+    const cardsHtml = missedQs.length ? `<section class="end-sec review"><h2 class="end-h">${__('Αυτές θέλουν λίγη ακόμη μελέτη')}</h2><ol class="rv-list fc-missed">${missedQs.map((q) => {
+      const t = cardTexts(q);
+      return `<li class="rv rv-part"><span class="rv-mark" aria-hidden="true">↻</span><div class="rv-body"><p class="rv-q">${esc(t.front)}</p>${t.back ? `<p class="rv-a">${esc(t.back)}</p>` : ''}</div></li>`;
+    }).join('')}</ol></section>` : '';
 
     let headline;
     const expired = s.deadline && Date.now() > s.deadline;
     const closedNote = !isOpen(s) && !P.done ? `<p class="end-note">${expired ? __('Η προθεσμία έληξε.') : __('Ο εκπαιδευτικός έκλεισε το παιχνίδι.')}</p>` : '';
     const retry = !paused && mode === 'mastery' && canRetryMastery();
-    const replay = !paused && review && isOpen(s);
-    const again = !paused && mode === 'flashcards' && isOpen(s);
+    const replay = !paused && P.done && isOpen(s) && (review || mode === 'classic' || mode === 'team');
+    const again = !paused && flash && isOpen(s);
+    const againMissed = again && cards.done && cards.missed.length > 0 && cards.missed.length < cards.items.length;
     const rankDd = `<dd data-rank>${withBoard ? '…' : '–'}</dd>`;
     if (paused) {
       headline = `<h1 class="end-title">${__('Σταμάτησες εδώ')}</h1>
-        <p class="end-note">${__('Οι απαντήσεις σου είναι αποθηκευμένες. Μπορείς να συνεχίσεις από εκεί που έμεινες.')}</p>
-        ${mode === 'flashcards' || mode === 'test' ? '' : `<p class="end-score"><span class="end-score-n">${num(P.score || 0)}</span><span class="end-score-l">${unitOf(mode) || __('πόντοι')}</span></p>`}`;
+        <p class="end-note">${flash ? __('Όσα σημείωσες είναι αποθηκευμένα. Μπορείς να συνεχίσεις από εκεί που έμεινες.') : __('Οι απαντήσεις σου είναι αποθηκευμένες. Μπορείς να συνεχίσεις από εκεί που έμεινες.')}</p>
+        ${flash ? `<p class="end-big">${__('Έμαθες {0} από {1}', cards.learned, cards.total)}</p>` : mode === 'test' ? '' : `<p class="end-score"><span class="end-score-n">${num(P.score || 0)}</span><span class="end-score-l">${unitOf(mode) || __('πόντοι')}</span></p>`}`;
     } else if (mode === 'test') headline = `<h1 class="end-title">${__('Τέλος του τεστ')}</h1>${closedNote}<p class="end-note">${__('Οι απαντήσεις σου στάλθηκαν στον εκπαιδευτικό.')}</p>${st.showResults && acc !== null ? `<p class="end-big">${pct(acc)} ${__('σωστά')}</p>` : ''}`;
-    else if (mode === 'flashcards') headline = `<h1 class="end-title">${__('Τέλος μελέτης')}</h1>${closedNote}<p class="end-big">${__('Ήξερες {0} από', P.correct || 0)} ${scored.length}</p>`;
+    else if (flash) {
+      const n = cards.missed.length;
+      headline = `<h1 class="end-title">${cards.done ? __('Έμαθες όλες τις κάρτες!') : __('Τέλος μελέτης')}</h1>${closedNote}
+        <p class="end-big">${__('Ήξερες αμέσως {0} από {1}', cards.quick, cards.total)}</p>
+        <p class="end-note">${!n ? (cards.done ? __('Τις ήξερες όλες με την πρώτη!') : '') : n === 1 ? __('Μία κάρτα τη θυμήθηκες μετά από επανάληψη.') : __('{0} κάρτες τις θυμήθηκες μετά από επανάληψη.', n)}</p>`;
+    }
     else if (review) {
       const r = P.result || {};
       headline = `<h1 class="end-title">${esc(r.title || __('Τέλος παιχνιδιού'))}</h1>${closedNote}
@@ -682,23 +725,26 @@ export function viewPlay(sid, ctx, opts = {}) {
     } else {
       const m = P.mastery;
       headline = `<h1 class="end-title">${P.done ? __('Τελείωσες!') : __('Τέλος παιχνιδιού')}</h1>${closedNote}
-        <p class="end-score"><span class="end-score-n">${num(P.score || 0)}</span><span class="end-score-l">${__('πόντοι')}</span></p>
+        <p class="end-score"><span class="end-score-n">${num(R ? R.score : P.score || 0)}</span><span class="end-score-l">${__('πόντοι')}${(P.plays || 1) > 1 ? ` ${__('· καλύτερο σκορ')} ${fmtScore(P.score, mode)}` : ''}</span></p>
         <dl class="end-stats"><div><dt>${__('Θέση')}</dt>${rankDd}</div>
-        <div><dt>${__('Σωστές')}</dt><dd>${P.correct || 0} / ${scored.length}</dd></div>
+        <div><dt>${__('Σωστές')}</dt><dd>${R ? R.correct : P.correct || 0} / ${scored.length}</dd></div>
         <div><dt>${m ? __('Κατάκτηση') : __('Ακρίβεια')}</dt><dd>${m ? pct(m.pct) : acc === null ? '–' : pct(acc)}</dd></div></dl>
         ${m ? `<p class="end-note">${m.pct * 100 >= (st.goal || 80) ? (__('Έφτασες στην κορυφή!') + ' ⛰️') : `${__('Ο στόχος είναι {0}%. Μπορείς να ξαναδοκιμάσεις όσες δεν κατέκτησες.', st.goal || 80)}`}</p>` : ''}`;
     }
     // Τα παιδιά δεν έχουν «Έξοδο»: εδώ είναι το τέλος. Μόνο ο εκπαιδευτικός (δοκιμή) γυρίζει πίσω.
     // Children get no "Exit": this is the end. Only the teacher (test play) goes back.
-    const main = paused ? 'data-continue' : retry ? 'data-retry' : replay ? 'data-replay' : again ? 'data-continue' : '';
-    const actions = `${paused ? `<button class="btn btn-sun btn-lg" type="button" data-continue>${mode === 'flashcards' ? __('Συνέχισε τη μελέτη') : __('Συνέχισε το παιχνίδι')}</button>` : ''}${retry ? ('<button class="btn btn-sun btn-lg" type="button" data-retry>' + __('Ξανά όσες δεν κατέκτησα') + '</button>') : ''}${replay ? ('<button class="btn btn-sun btn-lg" type="button" data-replay>' + __('Παίξε ξανά') + '</button>') : ''}${again ? `<button class="btn btn-sun btn-lg" type="button" data-continue>${__('Μελέτησε ξανά')}</button>` : ''}
+    const main = paused ? 'data-continue' : retry ? 'data-retry' : replay ? 'data-replay' : again ? 'data-again' : '';
+    const againBtns = !again ? '' : againMissed
+      ? `<button class="btn btn-sun btn-lg" type="button" data-again="missed">${__('Ξανά όσες δεν ήξερα')}</button><button class="btn btn-ghost-light btn-lg" type="button" data-again="all">${__('Όλες από την αρχή')}</button>`
+      : `<button class="btn btn-sun btn-lg" type="button" data-again="all">${__('Μελέτησε ξανά')}</button>`;
+    const actions = `${paused ? `<button class="btn btn-sun btn-lg" type="button" data-continue>${flash ? __('Συνέχισε τη μελέτη') : __('Συνέχισε το παιχνίδι')}</button>` : ''}${retry ? ('<button class="btn btn-sun btn-lg" type="button" data-retry>' + __('Ξανά όσες δεν κατέκτησα') + '</button>') : ''}${replay ? ('<button class="btn btn-sun btn-lg" type="button" data-replay>' + __('Ξαναπαίξε') + '</button>') : ''}${againBtns}
       ${kid ? '' : `<a class="btn ${main ? 'btn-ghost-light' : 'btn-sun'} btn-lg" href="${exitHref(s)}">${s.own ? __('Πίσω') : __('Έξοδος')}</a>`}`;
     el.innerHTML = `<div class="pl pl-end"><div class="pl-in pl-wide"><div class="end-card">
       <p class="pl-me">${esc(P.name)} ${teamBadge(teamById(P.team))}</p>${headline}
       ${actions.trim() ? `<p class="end-actions">${actions}</p>` : ''}${DB.sandbox && s.own ? `<div class="end-try"><p>${__('Αυτή ήταν δοκιμή: δεν αποθηκεύτηκε τίποτα και δεν φαίνεται στα αποτελέσματα.')}</p></div>` : DB.sandbox ? `<div class="end-try"><p>${__('Αυτό ήταν ένα δοκιμαστικό παιχνίδι. Θέλεις να φτιάξεις ένα με τις δικές σου ερωτήσεις;')}</p><p class="end-actions"><a class="btn btn-sun btn-lg" href="#/signup">${__('Φτιάξε δωρεάν λογαριασμό')}</a> <a class="btn btn-ghost-light btn-lg" href="#/try">${__('Δοκίμασε άλλο παιχνίδι')}</a></p></div>` : ''}</div>
       ${teams ? `<section class="end-sec"><h2 class="end-h">${__('Ομάδες')}</h2><div data-team></div></section>` : ''}
       ${withBoard ? `<section class="end-sec end-board" aria-live="polite"><h2 class="end-h">${isOpen(s) ? __('Κατάταξη') : __('Τελική κατάταξη')}</h2><div data-board>${boardInner([])}</div></section>` : ''}
-      ${reviewHtml}</div></div>`;
+      ${reviewHtml}${cardsHtml}</div></div>`;
     const paint = () => {
       if (stopped || screen !== 'end') return;
       const list = rows();
@@ -713,9 +759,12 @@ export function viewPlay(sid, ctx, opts = {}) {
     const rb = el.querySelector('[data-retry]');
     if (rb) rb.addEventListener('click', retryMastery);
     const pb = el.querySelector('[data-replay]');
-    if (pb) pb.addEventListener('click', () => { P.done = false; screen = ''; start(); });
+    if (pb) pb.addEventListener('click', playAgain);
     const cb = el.querySelector('[data-continue]');
     if (cb) cb.addEventListener('click', () => ctx.go('/play/' + sid));
+    el.querySelectorAll('[data-again]').forEach((b) => b.addEventListener('click', () => {
+      studyAgain(b.dataset.again === 'missed' ? cards.missed.slice() : cards.items.map((q) => q.id));
+    }));
   }
   // Κατάκτηση: νέος γύρος με όσες ερωτήσεις δεν κατακτήθηκαν (οι επαναλήψεις παίρνουν μισούς πόντους).
   function retryMastery() {

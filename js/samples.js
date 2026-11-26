@@ -3,6 +3,8 @@ import { rid } from './ui.js';
 import { PLANT_IMG } from './sample-art.js';
 
 const Q = (type, time, data) => Object.assign({ id: 'q' + rid(8), type, text: '', image: '', time, double: false, explain: '' }, data);
+/* Κάρτα μελέτης: μπροστά και πίσω. / A flashcard: front and back. */
+const C = (front, back) => ({ id: 'q' + rid(8), type: 'card', text: front, image: '', video: null, back: { text: back, image: '', video: null } });
 
 export function sampleGames() {
   return [
@@ -25,6 +27,16 @@ export function sampleGames() {
         Q('categorize', 60, { category: 'Γλώσσα', text: 'Βάλε κάθε λέξη στη σωστή ομάδα.', groups: [{ name: 'Ουσιαστικά', items: ['θάλασσα', 'δάσκαλος', 'βιβλίο'] }, { name: 'Επίθετα', items: ['ψηλός', 'όμορφη', 'κόκκινο'] }, { name: 'Ρήματα', items: ['τρέχω', 'κολυμπάμε'] }] }),
         Q('poll', 20, { text: 'Ποιο μάθημα σου αρέσει περισσότερο;', options: ['Μαθηματικά', 'Γλώσσα', 'Ιστορία', 'Φυσικά'] }),
         Q('open', 90, { text: 'Γράψε με δυο λόγια κάτι που έμαθες σήμερα.' })
+      ]
+    },
+    {
+      title: 'Αγγλικά: τα ζώα',
+      mode: 'flashcards',
+      description: 'Κάρτες μελέτης: μπροστά το ζώο στα ελληνικά, πίσω η λέξη στα αγγλικά. Με «Πρώτα η πίσω όψη» μελετούν ανάποδα.',
+      grades: ['Γ΄', 'Δ΄'], subject: 'Αγγλικά', cover: { color: '#E8A20E', emoji: '🐾' },
+      questions: [
+        C('🐶 σκύλος', 'dog'), C('🐱 γάτα', 'cat'), C('🐴 άλογο', 'horse'), C('🐮 αγελάδα', 'cow'),
+        C('🐷 γουρούνι', 'pig'), C('🐑 πρόβατο', 'sheep'), C('🐔 κότα', 'hen'), C('🦆 πάπια', 'duck')
       ]
     },
     {

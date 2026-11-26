@@ -1145,6 +1145,93 @@ TYPES.open = {
   }
 };
 
+/* ================= ΚΑΡΤΕΣ ΜΕΛΕΤΗΣ / FLASHCARDS =================
+   Μια κάρτα έχει δύο όψεις, η καθεμιά με κείμενο, εικόνα και βίντεο (όποια από τα τρία θέλεις).
+   Η μπροστινή όψη χρησιμοποιεί τα ίδια πεδία με τις ερωτήσεις (text, image), ώστε λίστες, αναφορές
+   και εικόνες να δουλεύουν όπως παντού. Η πίσω όψη είναι στο back = { text, image, video }.
+   A card has two sides, each with text, image and video (any of the three). The front uses the same
+   fields as questions (text, image); the back is back = { text, image, video }. */
+export const CARD_TEXT_MAX = 500;
+
+/* Βίντεο με σύνδεσμο: YouTube, Vimeo, Google Drive ή αρχείο βίντεο. Τα ίδια τα αρχεία δεν χωράνε στη δωρεάν βάση.
+   Video by link: YouTube, Vimeo, Google Drive or a video file. The files themselves do not fit the free database. */
+function urlTime(u) {
+  const m = /[?&#](?:t|start)=([\dhms.]+)/i.exec(u);
+  if (!m) return 0;
+  if (/^\d+(\.\d+)?$/.test(m[1])) return Math.floor(Number(m[1]));
+  let s = 0;
+  const re = /(\d+)([hms])/gi;
+  let x;
+  while ((x = re.exec(m[1]))) s += Number(x[1]) * ({ h: 3600, m: 60, s: 1 })[x[2].toLowerCase()];
+  return s;
+}
+export function videoInfo(url) {
+  const u = clean(url);
+  if (!/^https:\/\//i.test(u)) return null;
+  let m = /^https:\/\/(?:www\.|m\.|music\.)?(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([\w-]{11})(?![\w-])/i.exec(u);
+  if (m) return { kind: 'youtube', id: m[1], start: urlTime(u), name: 'YouTube' };
+  m = /^https:\/\/(?:www\.|player\.)?vimeo\.com\/(?:video\/|channels\/[\w-]+\/|groups\/[\w-]+\/videos\/)?(\d{5,})(?:\/([\da-f]{6,}))?/i.exec(u);
+  if (m) return { kind: 'vimeo', id: m[1], hash: m[2] || ((/[?&]h=([\da-f]+)/i.exec(u) || [])[1] || ''), start: urlTime(u), name: 'Vimeo' };
+  m = /^https:\/\/drive\.google\.com\/(?:file\/d\/|open\?(?:[^#]*&)?id=|uc\?(?:[^#]*&)?id=)([\w-]{20,})/i.exec(u);
+  if (m) return { kind: 'drive', id: m[1], start: 0, name: 'Google Drive' };
+  if (/^https:\/\/[^\s?#]+\.(?:mp4|webm|m4v|mov|ogv)(?:[?#]\S*)?$/i.test(u)) return { kind: 'file', src: u.replace(/#.*$/, ''), start: 0, name: '' };
+  return null;
+}
+/* Η διεύθυνση που παίζει το βίντεο, με αρχή και τέλος όπου το υποστηρίζει ο πάροχος.
+   The address that plays the video, with start and end where the provider supports them. */
+export function videoSrc(info, v) {
+  const start = Math.max(0, Math.floor(Number(v && v.start) || 0));
+  const end = Math.max(0, Math.floor(Number(v && v.end) || 0));
+  const to = end > start ? end : 0;
+  if (info.kind === 'youtube') return `https://www.youtube-nocookie.com/embed/${info.id}?rel=0&playsinline=1&autoplay=1${start ? `&start=${start}` : ''}${to ? `&end=${to}` : ''}`;
+  if (info.kind === 'vimeo') return `https://player.vimeo.com/video/${info.id}?${info.hash ? `h=${info.hash}&` : ''}autoplay=1&playsinline=1${start ? `#t=${start}s` : ''}`;
+  if (info.kind === 'drive') return `https://drive.google.com/file/d/${info.id}/preview`;
+  if (info.kind === 'file') return info.src + (start || to ? `#t=${start}${to ? `,${to}` : ''}` : '');
+  return '';
+}
+export function tidyVideo(v) {
+  if (!v || !clean(v.url)) return null;
+  const n = (x) => Math.max(0, Math.min(86400, Math.floor(Number(x) || 0)));
+  return { url: clean(v.url).slice(0, 500), start: n(v.start), end: n(v.end) };
+}
+const cardBack = (q) => (q.back && typeof q.back === 'object' ? q.back : {});
+const sideEmpty = (text, image, video) => !clean(text) && !image && !(video && clean(video.url));
+function videoProblems(v, where) {
+  if (!v || !clean(v.url)) return [];
+  if (!videoInfo(v.url)) return [__('ο σύνδεσμος του βίντεο ({0}) δεν είναι από YouTube, Vimeo, Google Drive ή αρχείο βίντεο', where)];
+  if (Number(v.end) > 0 && Number(v.end) <= (Number(v.start) || 0)) return [__('στο βίντεο ({0}) το «Σταματά στο» πρέπει να είναι μετά το «Ξεκινά από»', where)];
+  return [];
+}
+TYPES.card = {
+  label: __('Κάρτα'), icon: '🃏', desc: __('Μπροστά και πίσω: κείμενο, εικόνα ή βίντεο.'), scored: false, card: true,
+  blank: () => ({ video: null, back: { text: '', image: '', video: null } }),
+  edit: () => '',
+  bind() {},
+  validate(q) {
+    const b = cardBack(q);
+    const e = [];
+    if (sideEmpty(q.text, q.image, q.video)) e.push(__('γράψε ή βάλε κάτι στην μπροστινή όψη'));
+    if (sideEmpty(b.text, b.image, b.video)) e.push(__('γράψε ή βάλε κάτι στην πίσω όψη'));
+    return e.concat(videoProblems(q.video, __('μπροστά')), videoProblems(b.video, __('πίσω')));
+  },
+  tidy(q) {
+    const b = cardBack(q);
+    q.text = clean(q.text).slice(0, CARD_TEXT_MAX);
+    q.image = q.image || '';
+    q.video = tidyVideo(q.video);
+    q.back = { text: clean(b.text).slice(0, CARD_TEXT_MAX), image: b.image || '', video: tidyVideo(b.video) };
+  },
+  play(root) { root.innerHTML = ''; return { reveal() {}, disable() {} }; },
+  check: () => null,
+  describe: () => '',
+  correct: (q) => clean(cardBack(q).text),
+  sample: () => null,
+  summary: () => ''
+};
+/* Ό,τι μελετιέται ως κάρτα: οι κάρτες, και στους παλιούς συνδέσμους οι ερωτήσεις με σωστή απάντηση.
+   What is studied as a card: cards, and in old links the questions with a right answer. */
+export const studyItems = (qs) => (qs || []).filter((q) => q && (q.type === 'card' || (TYPES[q.type] && TYPES[q.type].scored)));
+
 export const TYPE_ORDER = ['mcq', 'multi', 'tf', 'fill', 'dropdown', 'drag', 'label', 'underline', 'match', 'reorder', 'categorize', 'poll', 'open'];
 
 /* Εικονίδια ειδών (SVG, ίδια σε κάθε συσκευή). */
@@ -1162,7 +1249,8 @@ const TYPE_ICONS = {
   reorder: TI('<path d="M10.5 6h10.5M10.5 12h10.5M10.5 18h10.5"/><path d="M5 3.5v17M2.5 6L5 3.5 7.5 6M2.5 18L5 20.5 7.5 18"/>'),
   categorize: TI('<rect x="2.5" y="3.5" width="8" height="17" rx="2"/><rect x="13.5" y="3.5" width="8" height="17" rx="2"/><path d="M5 8h3M5 11.5h3M16 8h3"/>'),
   poll: TI('<path d="M5.5 20v-7M10.5 20V5M15.5 20v-9M20.5 20V9M2.5 20.5h20"/>'),
-  open: TI('<path d="M4 4.5h16v11H10l-5 4.5v-4.5H4z"/><path d="M8 9h8M8 12h5"/>')
+  open: TI('<path d="M4 4.5h16v11H10l-5 4.5v-4.5H4z"/><path d="M8 9h8M8 12h5"/>'),
+  card: TI('<rect x="3" y="6.5" width="13.5" height="15" rx="2.5"/><path d="M7.5 3.5h11a2.5 2.5 0 0 1 2.5 2.5v11"/>')
 };
 Object.keys(TYPE_ICONS).forEach((k) => { if (TYPES[k]) TYPES[k].icon = TYPE_ICONS[k]; });
 
@@ -1180,7 +1268,7 @@ export function grade(q, a) {
 export function validateQuestion(q) {
   const t = TYPES[q.type];
   const errs = [];
-  if (!clean(q.text) && !q.image && !['dropdown', 'drag', 'label'].includes(q.type)) errs.push(__('γράψε την ερώτηση'));
+  if (!clean(q.text) && !q.image && !['dropdown', 'drag', 'label', 'card'].includes(q.type)) errs.push(__('γράψε την ερώτηση'));
   return errs.concat(t ? t.validate(q) : [__('άγνωστο είδος ερώτησης')]);
 }
 export function tidyQuestion(q) {

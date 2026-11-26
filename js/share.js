@@ -4,7 +4,8 @@ import { esc, app, setTitle, toast, dialog, num, plural, ICON, errText, confirmD
 import { DB, withImages } from './store.js';
 import { MODES, unitOf } from './modes.js';
 import { ranking, TEAM_SET } from './scoring.js';
-import { TYPES } from './qtypes.js';
+import { TYPES, studyItems } from './qtypes.js';
+import { firstTry, cardFront } from './cards.js';
 import { teacherTop, linkUrl, linkState, untilText } from './teacher.js';
 import { gameIcon } from './gicons.js';
 import { playOwn } from './playown.js';
@@ -59,7 +60,7 @@ export function viewLink(sid, ctx) {
           <div data-players></div>
           ${DB.canBots && state === 'open' ? `<p class="lk-bots"><button class="btn btn-sm btn-line" type="button" data-bots>${ICON.users}${__('Εικονικοί μαθητές')}</button></p>` : ''}</section>
         <section class="box"><div class="box-h"><h2>${__('Με μια ματιά')}</h2></div>
-          <div class="kpis"><div><b data-k-done>0</b><span>${__('τελείωσαν')}</span></div><div><b data-k-avg>–</b><span>${__('μέση επιτυχία')}</span></div></div>
+          <div class="kpis"><div><b data-k-done>0</b><span>${__('τελείωσαν')}</span></div><div><b data-k-avg>–</b><span>${S.mode === 'flashcards' ? __('τις ήξεραν αμέσως') : __('μέση επιτυχία')}</span></div></div>
           <p class="hardq" data-hard></p>
           <a class="btn btn-primary btn-wide" href="#/t/report/${esc(sid)}">${ICON.chart}${__('Όλα τα αποτελέσματα')}</a>
           <div class="lk-manage">${state === 'closed' ? `<button class="btn btn-sm btn-soft" type="button" data-open>${ICON.unlock}${__('Άνοιξε ξανά τον σύνδεσμο')}</button>` : `<button class="btn btn-sm btn-ghost" type="button" data-close>${ICON.lock}${__('Κλείσε τον σύνδεσμο')}</button>`}
@@ -108,9 +109,12 @@ export function viewLink(sid, ctx) {
 
   /* Μέση επιτυχία και η πιο δύσκολη ερώτηση, από τις απαντήσεις που έχουν δοθεί ως τώρα. */
   function glance() {
-    const qs = (S.questions || []).filter((q) => TYPES[q.type] && TYPES[q.type].scored);
+    // Κάρτες μελέτης: «την ήξερε αμέσως» αντί για σωστή απάντηση. / Flashcards: "knew it straight away" instead of a right answer.
+    const flash = S.mode === 'flashcards';
+    const qs = flash ? studyItems(S.questions) : (S.questions || []).filter((q) => TYPES[q.type] && TYPES[q.type].scored);
     const stats = qs.map((q) => {
-      const fs = players.map((p) => p.answers && p.answers[q.id]).filter((a) => a && typeof a.f === 'number').map((a) => a.f);
+      const fs = flash ? players.map((p) => p.answers && p.answers[q.id]).filter(Boolean).map((a) => (firstTry(a) ? 1 : 0))
+        : players.map((p) => p.answers && p.answers[q.id]).filter((a) => a && typeof a.f === 'number').map((a) => a.f);
       return { q, n: fs.length, avg: fs.length ? fs.reduce((x, y) => x + y, 0) / fs.length : null };
     });
     const all = stats.filter((s) => s.n);
@@ -125,7 +129,7 @@ export function viewLink(sid, ctx) {
     const box = main.querySelector('[data-players]');
     if (!box) return;
     const done = players.filter((p) => p.done).length;
-    const total = (S.questions || []).length || 1;
+    const total = (S.mode === 'flashcards' ? studyItems(S.questions) : S.questions || []).length || 1;
     const roster = S.roster ? S.roster.length : 0;
     main.querySelector('[data-count-s]').textContent = players.length
       ? (roster ? __('{0} από {1} μπήκαν', players.length, roster) : __('{0} μπήκαν, {1} τελείωσαν', players.length, done)) : '';
@@ -133,18 +137,20 @@ export function viewLink(sid, ctx) {
     const g = glance();
     main.querySelector('[data-k-avg]').textContent = g.avg === null ? '–' : `${Math.round(g.avg * 100)}%`;
     const hard = main.querySelector('[data-hard]');
+    const flash = S.mode === 'flashcards';
     hard.innerHTML = g.hard && g.hard.avg < 1
-      ? __('Δυσκόλεψε περισσότερο: <b>«{0}»</b>, με {1}% σωστές.', esc(String(g.hard.q.text || TYPES[g.hard.q.type].label).slice(0, 120)), Math.round(g.hard.avg * 100))
-      : players.length ? '' : __('Εδώ θα δεις πόσα παιδιά τελείωσαν και ποια ερώτηση δυσκόλεψε την τάξη.');
+      ? (flash ? __('Δυσκόλεψε περισσότερο η κάρτα <b>«{0}»</b>: την ήξερε αμέσως το {1}%.', esc(cardFront(g.hard.q).slice(0, 120)), Math.round(g.hard.avg * 100))
+        : __('Δυσκόλεψε περισσότερο: <b>«{0}»</b>, με {1}% σωστές.', esc(String(g.hard.q.text || TYPES[g.hard.q.type].label).slice(0, 120)), Math.round(g.hard.avg * 100)))
+      : players.length ? '' : flash ? __('Εδώ θα δεις πόσα παιδιά τελείωσαν και ποια κάρτα δυσκόλεψε την τάξη.') : __('Εδώ θα δεις πόσα παιδιά τελείωσαν και ποια ερώτηση δυσκόλεψε την τάξη.');
     if (!players.length) { box.innerHTML = ('<p class="muted">' + __('Κανείς δεν έχει ανοίξει ακόμη τον σύνδεσμο.') + '</p>'); return; }
     const unit = unitOf(S.mode);
     const scoreOn = S.mode !== 'test' && S.mode !== 'flashcards';
     box.innerHTML = `<ul class="lk-players">${ranking(players).map((p) => {
       const t = TEAM_SET.find((x) => x.id === p.team);
-      const n = Math.min(total, p.answered || 0);
+      const n = Math.min(total, (flash ? p.correct : p.answered) || 0);
       const frac = p.done ? 1 : n / total;
       return `<li class="lk-p">${avatar(p.name)}<span class="lk-pn">${esc(p.name)}${t ? ` <span class="dot" style="--t:${t.color}"></span><span class="muted">${esc(t.name)}</span>` : ''}</span>
-        <span class="lk-pp"><span class="bar"><i style="width:${Math.round(frac * 100)}%"></i></span><small>${p.done ? __('Τελείωσε') : __('{0} από {1} ερωτήσεις', n, total)}</small></span>
+        <span class="lk-pp"><span class="bar"><i style="width:${Math.round(frac * 100)}%"></i></span><small>${p.done ? __('Τελείωσε') : flash ? __('έμαθε {0} από {1} κάρτες', n, total) : __('{0} από {1} ερωτήσεις', n, total)}</small></span>
         <span class="lk-ps">${scoreOn ? `${num(p.score || 0)}${unit ? ` ${unit}` : ''}` : ''}</span>
         <button type="button" class="lk-kick" data-kick="${esc(p.uid)}" aria-label="${__('Αφαίρεση:')} ${esc(p.name)}" title="${__('Αφαίρεση')}">${ICON.x}</button></li>`;
     }).join('')}</ul>`;

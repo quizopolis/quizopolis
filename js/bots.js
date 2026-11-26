@@ -1,6 +1,6 @@
 /* Εικονικοί μαθητές για τη δοκιμαστική λειτουργία: παίζουν αμέσως όλο το παιχνίδι. */
 import { DB } from './store.js';
-import { TYPES, grade, isScored } from './qtypes.js';
+import { TYPES, grade, isScored, studyItems } from './qtypes.js';
 import { points, pickTeam } from './scoring.js';
 import { isReview } from './modes.js';
 import { rid } from './ui.js';
@@ -35,7 +35,8 @@ export async function simulatePlayers(sid, S, count, existing = []) {
     if (gameMod && gameMod.simulate) {
       Object.assign(P, gameMod.simulate(S, skill), { plays: 1 });
     } else if (S.mode === 'flashcards') {
-      qs.filter(isScored).forEach((q) => { const known = Math.random() < skill; P.answers[q.id] = { v: null, f: null, known, n: known ? 1 : 2, pts: 0, t: 0 }; });
+      // Στο τέλος ξέρουν όλες τις κάρτες· κάποιες τις έμαθαν με επανάληψη. / In the end they know every card; some were learned with repetition.
+      studyItems(qs).forEach((q) => { const first = Math.random() < skill; P.answers[q.id] = { v: null, f: null, known: true, first, n: first ? 1 : 2 + Math.floor(Math.random() * 2), pts: 0, t: 3000 + Math.round(Math.random() * 9000) }; });
       P.correct = Object.values(P.answers).filter((a) => a.known).length;
       P.answered = Object.keys(P.answers).length;
     } else {

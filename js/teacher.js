@@ -3,7 +3,7 @@
 import { esc, app, setTitle, CFG, toast, dialog, fmtDate, plural, ICON, LOGO, errText, confirmDanger, busy, norm, local, rid, sleep, langSwitch, avatar, popMenu } from './ui.js';
 import { DB } from './store.js';
 import { TYPES, validateQuestion, tidyQuestion } from './qtypes.js';
-import { MODES, BASIC_MODES, REVIEW_MODES } from './modes.js';
+import { MODES, BASIC_MODES, REVIEW_MODES, isDeck } from './modes.js';
 import { TEAM_SET } from './scoring.js';
 import { sampleGames } from './samples.js';
 import { sampleGamesEn } from './samples-en.js';
@@ -27,7 +27,7 @@ export function teacherTop(active) {
 }
 
 /* ---------- μικρά βοηθητικά ---------- */
-const QUICK = ['classic', 'millionaire', 'penalty', 'race', 'escape'];
+const QUICK = ['classic', 'flashcards', 'millionaire', 'penalty', 'race'];
 const dayStart = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
 export function closesText(deadline) {
   if (!deadline) return __('Χωρίς προθεσμία');
@@ -68,7 +68,8 @@ export function viewLibrary(ctx) {
     const c = (g.cover && g.cover.color) || '#0F8A5F';
     const id = esc(g.id);
     const title = g.title || __('Χωρίς τίτλο');
-    const meta = [`<span class="pill">${plural(g.count || 0, __('ερώτηση'), __('ερωτήσεις'))}</span>`]
+    const deck = isDeck(g);
+    const meta = [`<span class="pill">${deck ? plural(g.count || 0, __('κάρτα'), __('κάρτες')) : plural(g.count || 0, __('ερώτηση'), __('ερωτήσεις'))}</span>`]
       .concat(g.incomplete ? [`<span class="pill pill-warn">${plural(g.incomplete, __('θέλει συμπλήρωση'), __('θέλουν συμπλήρωση'))}</span>`] : [])
       .concat(g.subject ? [`<span class="pill">${esc(__(g.subject))}</span>`] : [])
       .concat((g.grades || []).slice(0, 3).map((x) => `<span class="pill">${esc(__(x))}</span>`)).join('');
@@ -129,7 +130,7 @@ export function viewLibrary(ctx) {
       let mode = deviceModeOf(g.mode);
       if (!mode) {
         // Χωρίς διαλεγμένο παιχνίδι: ρωτάμε ποιο και το κρατάμε για την επόμενη φορά.
-        const v = choiceOf(g.mode) ? g.mode : await pickDialog(g.mode);
+        const v = choiceOf(g.mode) ? g.mode : await pickDialog(g.mode, { cards: false });
         if (!v) return;
         if (v !== g.mode) { g.mode = v; try { await DB.saveGame(g); } catch (er) { /* παίζεται και χωρίς αποθήκευση */ } }
         if (/^stage-/.test(v)) { ctx.go('/t/stage/' + gid); return; }
@@ -153,10 +154,13 @@ export function viewLibrary(ctx) {
       const gid = t.dataset.menu;
       const g = games.find((x) => x.id === gid) || {};
       const ch = choiceOf(g.mode);
+      // Οι κάρτες μελέτης δεν παίζονται στον προβολέα με ομάδες: δεν έχουν σωστές απαντήσεις.
+      // Flashcards do not play on the projector with teams: they have no right answers.
       popMenu(t, [
         { label: __('Επεξεργασία'), icon: ICON.edit, act: () => ctx.go('/t/edit/' + gid) },
         ...(ch && ch.stage ? [{ label: __('Στείλε σύνδεσμο στα παιδιά'), icon: ICON.send, act: () => share(gid) }]
-          : [{ label: __('Παίξε το τώρα'), icon: ICON.play, act: () => play(gid) }, { label: __('Στον προβολέα με ομάδες'), icon: ICON.screen, act: () => ctx.go('/t/stage/' + gid) }]),
+          : isDeck(g) ? [{ label: __('Μελέτησέ τες τώρα'), icon: ICON.play, act: () => play(gid) }]
+            : [{ label: __('Παίξε το τώρα'), icon: ICON.play, act: () => play(gid) }, { label: __('Στον προβολέα με ομάδες'), icon: ICON.screen, act: () => ctx.go('/t/stage/' + gid) }]),
         { label: __('Αντίγραφο'), icon: ICON.copy, act: () => dup(gid) },
         '-',
         { label: __('Διαγραφή'), icon: ICON.trash, danger: true, act: () => del(gid) }
@@ -208,7 +212,7 @@ export function viewLibrary(ctx) {
 const DEADLINES = [[1, __('1 μέρα')], [3, __('3 μέρες')], [7, __('1 εβδομάδα')], [14, __('2 εβδομάδες')], [30, __('1 μήνας')], [0, __('Χωρίς προθεσμία')]];
 const OPT_SHORT = {
   timer: __('χρονόμετρο'), showAnswers: __('σωστές απαντήσεις'), powerups: __('βοήθειες'), shuffleQ: __('ανακάτεμα ερωτήσεων'),
-  shuffleA: __('ανακάτεμα απαντήσεων'), leaderboard: __('κατάταξη'), showResults: __('διορθώσεις στο τέλος')
+  shuffleA: __('ανακάτεμα απαντήσεων'), leaderboard: __('κατάταξη'), showResults: __('διορθώσεις στο τέλος'), backFirst: __('πρώτα η πίσω όψη')
 };
 
 export async function shareDialog(game0, ctx) {
@@ -218,38 +222,43 @@ export async function shareDialog(game0, ctx) {
   const skipped = game0.questions.length - ready.length;
   if (!ready.length) { dialog({ title: __('Καμία ερώτηση δεν είναι έτοιμη'), text: __('Συμπλήρωσε τις ερωτήσεις στον επεξεργαστή και ξαναδοκίμασε.') }); return; }
   const game = Object.assign({}, game0, { questions: ready });
+  // Κάρτες μελέτης: ξεχωριστό παιχνίδι, μόνο με τις δικές του ρυθμίσεις. Τα κουίζ δεν γίνονται κάρτες εδώ.
+  // Flashcards: a separate game, with only its own settings. Quizzes do not become cards here.
+  const deck = isDeck(game0);
+  const noun = (n) => (deck ? plural(n, __('κάρτα'), __('κάρτες')) : plural(n, __('ερώτηση'), __('ερωτήσεις')));
   let classes = [];
   try { classes = await DB.listClasses(); } catch (e) { /* ignore */ }
   const remembered = local.get('qz:sharePrefs', {});
-  const chosen = linkModeOf(game.mode);
-  let mode = chosen || (MODES[remembered.mode] ? remembered.mode : 'classic');
+  const chosen = deck ? 'flashcards' : linkModeOf(game.mode);
+  let mode = chosen || (MODES[remembered.mode] && remembered.mode !== 'flashcards' ? remembered.mode : 'classic');
+  const basic = BASIC_MODES.filter((k) => k !== 'flashcards' || mode === 'flashcards');
   let picture = null;
   const scoredCount = (game.questions || []).filter((q) => TYPES[q.type] && TYPES[q.type].scored).length;
   const days0 = DEADLINES.some(([d]) => d === remembered.days) ? remembered.days : 7;
   const modeCard = (k) => `<label class="mode-c"><input type="radio" name="mode" value="${k}" ${k === mode ? 'checked' : ''}><span class="mode-in">${gameIcon(k, { size: 36 })}<span class="mode-l">${esc(MODES[k].label)}</span></span></label>`;
-  const grids = `<fieldset class="sd-modes"><legend class="label">${__('Κουίζ και μελέτη')}</legend><div class="mode-grid">${BASIC_MODES.map(modeCard).join('')}</div></fieldset>
+  const grids = `<fieldset class="sd-modes"><legend class="label">${__('Κουίζ και μελέτη')}</legend><div class="mode-grid">${basic.map(modeCard).join('')}</div></fieldset>
     <fieldset class="sd-modes"><legend class="label">${__('Παιχνίδια επανάληψης')}</legend><div class="mode-grid">${REVIEW_MODES.map(modeCard).join('')}</div></fieldset>
     <p class="sd-desc" data-desc></p>`;
   const classHint = (id) => (id ? __('Τα παιδιά βρίσκουν το όνομά τους στη λίστα και παίζουν, χωρίς κωδικούς.')
     : classes.length ? __('Χωρίς λίστα, τα παιδιά γράφουν μόνα τους το όνομά τους.') : __('Στις «Τάξεις» μπορείς να φτιάξεις λίστα με τα ονόματα, ώστε τα παιδιά να πατούν το δικό τους.'));
   const remClass = classes.some((c) => c.id === remembered.classId) ? remembered.classId : '';
   const html = `<div class="sd">
-    <div class="sd-game"><span data-chosen-i>${gameIcon(mode, { size: 40 })}</span><span class="sd-game-t"><b data-chosen-n>${esc(MODES[mode].label)}</b><small>${esc(game.title || __('Χωρίς τίτλο'))}, ${plural(game.questions.length, __('ερώτηση'), __('ερωτήσεις'))}</small></span>
-      <button type="button" class="btn btn-sm btn-line" data-other aria-expanded="${chosen ? 'false' : 'true'}">${__('Άλλο παιχνίδι')}</button></div>
-    <div class="sd-all"${chosen ? ' hidden' : ''}>${grids}</div>
+    <div class="sd-game"><span data-chosen-i>${gameIcon(mode, { size: 40 })}</span><span class="sd-game-t"><b data-chosen-n>${esc(MODES[mode].label)}</b><small>${esc(game.title || __('Χωρίς τίτλο'))}, ${noun(game.questions.length)}</small></span>
+      ${deck ? '' : `<button type="button" class="btn btn-sm btn-line" data-other aria-expanded="${chosen ? 'false' : 'true'}">${__('Άλλο παιχνίδι')}</button>`}</div>
+    ${deck ? '<p class="sd-desc" data-desc></p>' : `<div class="sd-all"${chosen ? ' hidden' : ''}>${grids}</div>`}
     <div class="field"><label class="label" for="sd-class">${__('Ποια τάξη θα παίξει;')}</label><select class="input" id="sd-class">
       <option value="">${__('Χωρίς λίστα τάξης')}</option>
       ${classes.map((c) => `<option value="${esc(c.id)}" ${remClass === c.id ? 'selected' : ''}>${esc(c.name)}, ${plural((c.students || []).length, __('παιδί'), __('παιδιά'))}</option>`).join('')}</select>
       <p class="hint" data-class-hint>${classHint(remClass)}</p></div>
     <fieldset class="field"><legend class="label">${__('Ως πότε θα παίζουν;')}</legend><div class="chips-pick">${DEADLINES.map(([d, l]) => `<label class="chip-pick"><input type="radio" name="sd-days" value="${d}" ${d === days0 ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div></fieldset>
     <details class="sd-more"><summary><span>${__('Περισσότερες ρυθμίσεις')}<small data-more-sum></small></span>${ICON.chev}</summary><div class="sd-opts" data-opts></div></details>
-    ${skipped ? `<p class="banner sd-skip">${skipped === 1 ? __('Μία ερώτηση δεν είναι συμπληρωμένη και δεν θα μπει στο παιχνίδι.') : __('{0} ερωτήσεις δεν είναι συμπληρωμένες και δεν θα μπουν στο παιχνίδι.', skipped)}</p>` : ''}
+    ${skipped ? `<p class="banner sd-skip">${deck ? (skipped === 1 ? __('Μία κάρτα δεν είναι συμπληρωμένη και δεν θα μπει στο παιχνίδι.') : __('{0} κάρτες δεν είναι συμπληρωμένες και δεν θα μπουν στο παιχνίδι.', skipped)) : skipped === 1 ? __('Μία ερώτηση δεν είναι συμπληρωμένη και δεν θα μπει στο παιχνίδι.') : __('{0} ερωτήσεις δεν είναι συμπληρωμένες και δεν θα μπουν στο παιχνίδι.', skipped)}</p>` : ''}
     <div class="sd-warn" data-warn></div></div>`;
   const toggle = (k, label, on, hint = '') => `<label class="check"><input type="checkbox" data-o="${k}" ${on ? 'checked' : ''}><span>${esc(label)}${hint ? `<span class="hint">${esc(hint)}</span>` : ''}</span></label>`;
   const summary = (dlg) => {
     const on = [];
     dlg.querySelectorAll('[data-o]').forEach((x) => {
-      if (x.type === 'checkbox') { if (x.checked && OPT_SHORT[x.dataset.o]) on.push(OPT_SHORT[x.dataset.o]); }
+      if (x.type === 'checkbox') { if (x.checked && OPT_SHORT[x.dataset.o]) on.push(mode === 'flashcards' && x.dataset.o === 'shuffleQ' ? __('ανακάτεμα καρτών') : OPT_SHORT[x.dataset.o]); }
       else if (x.dataset.o === 'teams') on.push(__('{0} ομάδες', x.value));
       else if (x.dataset.o === 'goal') on.push(__('στόχος {0}%', x.value));
     });
@@ -261,12 +270,14 @@ export async function shareDialog(game0, ctx) {
     const d = Object.assign({}, m.defaults, (remembered.opts || {})[mode] || {});
     let desc = m.desc + (m.note ? ` ${m.note}` : '');
     if (m.group === 'review' && scoredCount < (game.questions || []).length) desc += (' ' + __('Οι ερωτήσεις χωρίς σωστή απάντηση (δημοσκόπηση, ανοιχτή) δεν μπαίνουν στα παιχνίδια επανάληψης.'));
-    dlg.querySelector('[data-desc]').textContent = desc;
+    const descEl = dlg.querySelector('[data-desc]');
+    if (descEl) descEl.textContent = desc;
     let h = '';
     if ('timer' in d) h += toggle('timer', __('Χρονόμετρο σε κάθε ερώτηση'), d.timer, __('Ο χρόνος ορίζεται στην κάθε ερώτηση. Γρήγορες σωστές απαντήσεις παίρνουν περισσότερους πόντους.'));
     if ('showAnswers' in d) h += toggle('showAnswers', __('Δείχνει τη σωστή απάντηση μετά από κάθε ερώτηση'), d.showAnswers);
     if ('powerups' in d) h += toggle('powerups', __('Βοήθειες (50:50, διπλοί πόντοι, έξτρα χρόνος)'), d.powerups, __('Κερδίζονται με 3 σωστές στη σειρά.'));
-    if ('shuffleQ' in d) h += toggle('shuffleQ', __('Ανακάτεμα ερωτήσεων'), d.shuffleQ);
+    if ('shuffleQ' in d) h += mode === 'flashcards' ? toggle('shuffleQ', __('Ανακάτεμα καρτών'), d.shuffleQ, __('Κάθε παιδί βλέπει τις κάρτες με άλλη σειρά.')) : toggle('shuffleQ', __('Ανακάτεμα ερωτήσεων'), d.shuffleQ);
+    if ('backFirst' in d) h += toggle('backFirst', __('Πρώτα η πίσω όψη'), d.backFirst, __('Τα παιδιά βλέπουν πρώτα την πίσω όψη και θυμούνται την μπροστινή. Π.χ. βλέπουν τη λέξη στα αγγλικά και λένε τη λέξη στα ελληνικά.'));
     if ('shuffleA' in d) h += toggle('shuffleA', __('Ανακάτεμα απαντήσεων'), d.shuffleA);
     if ('leaderboard' in d) h += toggle('leaderboard', __('Κατάταξη στο τέλος'), d.leaderboard);
     if ('showResults' in d) h += toggle('showResults', __('Στο τέλος τα παιδιά βλέπουν το αποτέλεσμα και τις διορθώσεις'), d.showResults);
@@ -319,7 +330,7 @@ export async function shareDialog(game0, ctx) {
       dlg.classList.add('dlg-send');
       drawOpts(dlg);
       const other = dlg.querySelector('[data-other]');
-      other.addEventListener('click', () => {
+      if (other) other.addEventListener('click', () => {
         const all = dlg.querySelector('.sd-all');
         all.hidden = !all.hidden;
         other.setAttribute('aria-expanded', String(!all.hidden));

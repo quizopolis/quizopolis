@@ -1,5 +1,5 @@
 /* Επεξεργαστής παιχνιδιού: στοιχεία, ερωτήσεις όλων των ειδών, εικόνες, προεπισκόπηση, εισαγωγή από κείμενο. */
-import { esc, app, setTitle, toast, dialog, plural, ICON, errText, confirmDanger, busy, norm, rid, GRADES, SUBJECTS, COVERS, EMOJIS } from './ui.js';
+import { esc, app, setTitle, toast, dialog, plural, ICON, errText, confirmDanger, busy, norm, rid, local, GRADES, SUBJECTS, COVERS, EMOJIS } from './ui.js';
 import { DB } from './store.js';
 import { TYPES, TYPE_ORDER, newQuestion, validateQuestion, tidyQuestion, grade, isScored } from './qtypes.js';
 import { startDialog } from './teacher.js';
@@ -7,7 +7,9 @@ import { __, LANG } from './i18n.js';
 import { choiceOf, readiness, pickDialog, NEED, usesQuizExtras } from './choose.js';
 import { playOwn, playProblem } from './playown.js';
 import { gameIcon, tint } from './gicons.js';
-import { readImage, PHOTO, BIG } from './images.js';
+import { readImage, PHOTO, BIG, CARD, CARD_MIN } from './images.js';
+import { isDeck } from './modes.js';
+import { cardForm, bindCardForm, sideOf, cardEmpty, railTexts, cardPreview, textImportDialog, quizImportDialog, cardsFromQuestions } from './deckedit.js';
 
 const TIMES = [0, 10, 20, 30, 45, 60, 90, 120, 180, 300];
 const timeLabel = (s) => (!s ? __('Χωρίς όριο χρόνου') : s < 60 ? __('{0} δευτερόλεπτα', s) : s === 90 ? __('1,5 λεπτό') : s === 60 ? __('1 λεπτό') : __('{0} λεπτά', s / 60));
@@ -106,7 +108,10 @@ export function viewEditor(id, ctx, choice) {
   /* αυτόματη αποθήκευση: ver μετρά τις αλλαγές, savedVer την τελευταία που αποθηκεύτηκε */
   let ver = 0, savedVer = 0, saving = null, timer = null, saveErr = null;
   const dirty = () => ver !== savedVer;
-  const worth = () => !!(G && (G.id || String(G.title || '').trim() || G.questions.some((q) => String(q.text || '').trim() || q.image)));
+  const worth = () => !!(G && (G.id || String(G.title || '').trim() || G.questions.some((q) => String(q.text || '').trim() || q.image || (q.type === 'card' && !cardEmpty(q)))));
+  /* Τράπουλα: οι κάρτες μελέτης είναι ξεχωριστό παιχνίδι με δικές του κάρτες. / Deck: flashcards are a separate game with their own cards. */
+  let deck = false;
+  const noun = (n) => (deck ? plural(n, __('κάρτα'), __('κάρτες')) : plural(n, __('ερώτηση'), __('ερωτήσεις')));
   const qById = (qid) => (G ? G.questions.find((x) => x.id === qid) : null);
   const qOf = (node) => { const box = node.closest('[data-q]'); return box ? qById(box.dataset.q) : null; };
 
@@ -129,7 +134,9 @@ export function viewEditor(id, ctx, choice) {
     const q = qById(cur);
     if (q) {
       const tx = root.querySelector(`[data-goto="${cur}"] .qi-tx`);
-      if (tx) { tx.textContent = railText(q); tx.classList.toggle('is-empty', !String(q.text || '').trim()); }
+      if (tx) { tx.textContent = railText(q); tx.classList.toggle('is-empty', deck ? !railTexts(q).front : !String(q.text || '').trim()); }
+      const bk = deck && root.querySelector(`[data-goto="${cur}"] .qi-bk`);
+      if (bk) { const r = railTexts(q); bk.textContent = r.back || __('(κενή πίσω όψη)'); bk.classList.toggle('is-empty', !r.back); }
     }
     if (tried) showErrors(false);
   };
@@ -145,7 +152,7 @@ export function viewEditor(id, ctx, choice) {
     body.title = String(body.title || '').trim();
     body.incomplete = body.questions.filter((q) => validateQuestion(q).length).length;
     if (JSON.stringify(body).length > LIMIT) {
-      saveErr = __('Οι εικόνες πιάνουν πολύ χώρο. Αφαίρεσε κάποιες εικόνες ή χώρισε τις ερωτήσεις σε δύο παιχνίδια.');
+      saveErr = deck ? __('Οι εικόνες πιάνουν πολύ χώρο. Αφαίρεσε κάποιες εικόνες ή χώρισε τις κάρτες σε δύο παιχνίδια.') : __('Οι εικόνες πιάνουν πολύ χώρο. Αφαίρεσε κάποιες εικόνες ή χώρισε τις ερωτήσεις σε δύο παιχνίδια.');
       setStatus('error', __('Δεν αποθηκεύτηκε: πολύ μεγάλο'), saveErr);
       return false;
     }
@@ -197,8 +204,12 @@ export function viewEditor(id, ctx, choice) {
     }
     if (!alive) return;
     G.cover = G.cover || { color: COVERS[0], emoji: '🧠' };
+    if (!id && G.mode === 'flashcards') G.cover.emoji = '🃏';
+    deck = isDeck(G);
     cur = G.questions.length ? G.questions[0].id : null;
     render();
+    // Παλιό παιχνίδι «Κάρτες μελέτης» με ερωτήσεις κουίζ. / An old "Flashcards" game with quiz questions.
+    if (G.mode === 'flashcards' && !deck) oldCards();
   })();
 
   /* ---------- σελίδα ---------- */
@@ -211,17 +222,18 @@ export function viewEditor(id, ctx, choice) {
         <button type="button" class="ed-cover" data-cover style="background:${tint(c.color, 0.16)}" title="${__('Εξώφυλλο')}" aria-label="${__('Εξώφυλλο: αλλαγή χρώματος και εικονιδίου')}"><span aria-hidden="true">${esc(c.emoji)}</span></button>
         <div class="ed-tt"><label class="sr" for="g-title">${__('Τίτλος παιχνιδιού')}</label><input class="ed-title" id="g-title" maxlength="90" placeholder="${__('Τίτλος παιχνιδιού')}" value="${esc(G.title)}" data-g="title" autocomplete="off"><small class="ed-sub" data-sub></small></div>
         <span class="ed-status" data-status aria-live="polite"></span>
-        <button type="button" class="btn btn-line ed-pv" data-act="preview" title="${__('Δες την ερώτηση όπως θα τη δουν τα παιδιά')}">${ICON.eye}<span>${__('Προεπισκόπηση')}</span></button>
+        <button type="button" class="btn btn-line ed-pv" data-act="preview" title="${deck ? __('Δες την κάρτα όπως θα τη δουν τα παιδιά') : __('Δες την ερώτηση όπως θα τη δουν τα παιδιά')}">${ICON.eye}<span>${__('Προεπισκόπηση')}</span></button>
         <button type="button" class="btn btn-line ed-play" data-playnow ${ch && ch.stage ? 'hidden' : ''} title="${__('Παίξε όλο το παιχνίδι όπως τα παιδιά, για δοκιμή ή με όλη την τάξη στην οθόνη. Δεν αποθηκεύεται τίποτα.')}">${ICON.play}<span>${__('Παίξε')}</span></button>
         <button type="button" class="btn btn-primary ed-go" data-saveplay>${ch && ch.stage ? ICON.screen + '<span>' + __('Στον προβολέα') + '</span>' : ICON.send + '<span>' + __('Στείλε στην τάξη') + '</span>'}</button>
       </header>
       <div class="ed-body">
         <aside class="ed-rail">
           <section class="ed-game" data-game aria-label="${__('Παιχνίδι')}"></section>
-          <div class="rail-h"><span>${__('Ερωτήσεις')}</span><span data-qcount></span></div>
-          <ol class="ql" data-ql aria-label="${__('Ερωτήσεις')}"></ol>
-          <button type="button" class="addq" data-addq>${ICON.plus}<span>${__('Νέα ερώτηση')}</span></button>
+          <div class="rail-h"><span>${deck ? __('Κάρτες') : __('Ερωτήσεις')}</span><span data-qcount></span></div>
+          <ol class="ql${deck ? ' ql-cards' : ''}" data-ql aria-label="${deck ? __('Κάρτες') : __('Ερωτήσεις')}"></ol>
+          <button type="button" class="addq" data-addq>${ICON.plus}<span>${deck ? __('Νέα κάρτα') : __('Νέα ερώτηση')}</span></button>
           <button type="button" class="btn btn-ghost btn-sm ed-imp" data-import>${ICON.upload}${__('Εισαγωγή από κείμενο')}</button>
+          ${deck ? `<button type="button" class="btn btn-ghost btn-sm ed-imp" data-quizimp>${ICON.copy}${__('Κάρτες από κουίζ')}</button>` : ''}
         </aside>
         <section class="ed-canvas" data-canvas></section>
         <aside class="ed-panel" data-panel></aside>
@@ -241,7 +253,7 @@ export function viewEditor(id, ctx, choice) {
     const bits = [];
     if (G.subject) bits.push(__(G.subject));
     if ((G.grades || []).length) bits.push(G.grades.map((x) => __(x)).join(' '));
-    bits.push(plural(G.questions.length, __('ερώτηση'), __('ερωτήσεις')));
+    bits.push(noun(G.questions.length));
     s.textContent = bits.join(', ');
   }
   function typeGrid() {
@@ -264,8 +276,8 @@ export function viewEditor(id, ctx, choice) {
       return;
     }
     box.className = 'ed-game' + (ch.stage ? ' is-stage' : '');
-    box.innerHTML = `${gameIcon(G.mode, { size: 40 })}<span class="ed-game-t"><b>${esc(ch.label)}</b><small>${esc(ch.kicker)}</small></span>
-      <button type="button" class="btn btn-sm btn-ghost" data-change-game>${__('Αλλαγή')}</button>`;
+    box.innerHTML = `${gameIcon(G.mode, { size: 40 })}<span class="ed-game-t"><b>${esc(ch.label)}</b><small>${esc(deck ? __('Κάθε κάρτα έχει δύο όψεις') : ch.kicker)}</small></span>
+      ${deck ? '' : `<button type="button" class="btn btn-sm btn-ghost" data-change-game>${__('Αλλαγή')}</button>`}`;
   }
   function drawReady() {
     const box = root.querySelector('[data-ready]');
@@ -273,6 +285,15 @@ export function viewEditor(id, ctx, choice) {
     const ch = choiceOf(G.mode);
     const r = readiness(G.mode, G.questions);
     let head, text;
+    if (deck) {
+      const n = G.questions.filter((q) => !validateQuestion(q).length).length;
+      head = n ? __('Έτοιμο για μελέτη') : __('Δεν είναι ακόμη έτοιμο');
+      text = n ? plural(n, __('κάρτα έτοιμη'), __('κάρτες έτοιμες')) + (n < G.questions.length ? ` ${__('από {0}.', G.questions.length)}` : '.')
+        : G.questions.length ? __('Συμπλήρωσε και τις δύο όψεις της κάρτας.') : __('Πρόσθεσε την πρώτη κάρτα.');
+      box.className = 'ready' + (n ? ' is-ok' : '');
+      box.innerHTML = `<b>${n ? ICON.check : ''}${esc(head)}</b><span>${esc(text)}</span>${ch && ch.tip ? `<small>${esc(ch.tip)}</small>` : ''}`;
+      return;
+    }
     if (r.ok) {
       head = __('Έτοιμο για παιχνίδι');
       text = r.scored ? __('{0} ερωτήσεις με σωστή απάντηση. Χρειάζονται τουλάχιστον {1}.', r.n, r.need) : plural(r.n, __('ερώτηση έτοιμη'), __('ερωτήσεις έτοιμες')) + '.';
@@ -301,9 +322,118 @@ export function viewEditor(id, ctx, choice) {
   async function changeGame() {
     const v = await pickDialog(G.mode);
     if (!v || v === G.mode) return;
+    if (v === 'flashcards' && !deck) { cardsInstead(); return; }
     applyGame(v);
     const t = root.querySelector('[data-change-game]');
     if (t) t.focus();
+  }
+  /* Οι κάρτες μελέτης είναι ξεχωριστό παιχνίδι. Χωρίς ερωτήσεις, αυτό εδώ γίνεται τράπουλα·
+     με ερωτήσεις, φτιάχνεται νέα τράπουλα από αυτές και το κουίζ μένει όπως είναι.
+     Flashcards are a separate game. With no questions, this one becomes a deck;
+     with questions, a new deck is made from them and the quiz stays as it is. */
+  async function cardsInstead() {
+    const filled = G.questions.filter((q) => String(q.text || '').trim() || q.image || !validateQuestion(q).length);
+    if (!filled.length) {
+      G.mode = 'flashcards';
+      G.questions = [];
+      if (G.cover && G.cover.emoji === '🧠') G.cover.emoji = '🃏';
+      deck = true;
+      cur = null;
+      markDirty();
+      render();
+      return;
+    }
+    const v = await dialog({
+      title: __('Κάρτες από αυτές τις ερωτήσεις;'),
+      text: __('Οι κάρτες μελέτης είναι ξεχωριστό παιχνίδι: κάθε κάρτα έχει μπροστινή και πίσω όψη, με κείμενο, εικόνα ή βίντεο. Μπορώ να φτιάξω νέες κάρτες από αυτές τις ερωτήσεις: μπροστά η ερώτηση, πίσω η σωστή απάντηση. Το κουίζ σου μένει όπως είναι.'),
+      actions: [{ label: __('Άκυρο'), value: null }, { label: __('Φτιάξε κάρτες'), value: 'make', kind: 'primary' }]
+    });
+    if (v === 'make') makeDeck(false);
+  }
+  /* Νέα τράπουλα από τις ερωτήσεις αυτού του παιχνιδιού. old: παλιό παιχνίδι «Κάρτες μελέτης» που γίνεται κουίζ.
+     A new deck from this game's questions. old: an old "Flashcards" game that becomes a quiz. */
+  async function makeDeck(old) {
+    const b = busy(__('Φτιάχνονται οι κάρτες…'));
+    try {
+      const all = await cardsFromQuestions(G.questions.filter((q) => !validateQuestion(q).length));
+      if (!all.length) {
+        b.close();
+        dialog({ title: __('Δεν έγιναν κάρτες'), text: __('Καμία ερώτηση δεν έχει σωστή απάντηση για να μπει στην πίσω όψη. Φτιάξε τις κάρτες από την αρχή, με το «Νέο παιχνίδι».') });
+        return;
+      }
+      const body = { title: String(G.title || '').trim(), description: G.description || '', grades: (G.grades || []).slice(), subject: G.subject || '', mode: 'flashcards', cover: { color: (G.cover && G.cover.color) || COVERS[0], emoji: '🃏' }, questions: [] };
+      const fit = fitCards(body, all);
+      body.incomplete = body.questions.filter((q) => validateQuestion(q).length).length;
+      if (old) { G.mode = 'classic'; ver++; await save(); }
+      else if (dirty() && worth()) await save();
+      const newId = await DB.saveGame(body);
+      b.close();
+      const head = body.questions.length === 1 ? __('Έγινε 1 κάρτα.') : __('Έγιναν {0} κάρτες.', body.questions.length);
+      toast([head].concat(fit.notes).join(' '), fit.notes.length ? 'error' : 'ok');
+      ctx.go('/t/edit/' + newId);
+    } catch (e) { b.close(); toast(errText(e), 'error'); }
+  }
+  /* Βάζει όσες κάρτες χωράνε (έως MAX_Q και έως το όριο μεγέθους· οι εικόνες που δεν χωράνε φεύγουν).
+     Adds as many cards as fit (up to MAX_Q and the size limit; pictures that do not fit are dropped). */
+  function fitCards(target, cards) {
+    const notes = [];
+    const room = MAX_Q - target.questions.length;
+    if (cards.length > room) notes.push(__('Ένα παιχνίδι έχει έως {0} κάρτες: μπήκαν οι πρώτες {1}.', MAX_Q, Math.max(0, room)));
+    let dropped = 0;
+    cards.slice(0, Math.max(0, room)).forEach((c) => {
+      target.questions.push(c);
+      if (JSON.stringify(target).length > LIMIT) {
+        if (c.image) { c.image = ''; dropped++; }
+        if (c.back && c.back.image) { c.back.image = ''; dropped++; }
+      }
+    });
+    if (dropped) notes.push(dropped === 1 ? __('Μία εικόνα δεν χώρεσε και δεν μπήκε.') : __('{0} εικόνες δεν χώρεσαν και δεν μπήκαν.', dropped));
+    return { notes };
+  }
+  /* Παλιό παιχνίδι «Κάρτες μελέτης» με ερωτήσεις κουίζ: προτείνουμε μία φορά να γίνουν κάρτες.
+     An old "Flashcards" game with quiz questions: we offer once to turn them into cards. */
+  async function oldCards() {
+    const key = 'qz:oldcards:' + (G.id || '');
+    if (local.get(key, false)) return;
+    const v = await dialog({
+      title: __('Οι κάρτες μελέτης άλλαξαν'),
+      text: __('Τώρα κάθε κάρτα έχει δική της μπροστινή και πίσω όψη, με κείμενο, εικόνα ή βίντεο. Αυτό το παιχνίδι έχει ερωτήσεις κουίζ. Θες να φτιάξω κάρτες από αυτές; Οι ερωτήσεις μένουν εδώ ως κουίζ.'),
+      actions: [{ label: __('Όχι τώρα'), value: null }, { label: __('Φτιάξε κάρτες'), value: 'make', kind: 'primary' }]
+    });
+    local.set(key, true);
+    if (v === 'make' && alive) makeDeck(true);
+  }
+  /* Κάρτες από κείμενο ή από κουίζ, στο τέλος της τράπουλας. Μια μόνη άδεια κάρτα αντικαθίσταται.
+     Cards from text or from a quiz, at the end of the deck. A lone empty card is replaced. */
+  function addCards(cards, extra) {
+    if (!cards || !cards.length) return;
+    if (G.questions.length === 1 && cardEmpty(G.questions[0])) G.questions = [];
+    const fit = fitCards(G, cards);
+    const added = cards.filter((c) => G.questions.includes(c));
+    if (!added.length) { toast(fit.notes.join(' ') || __('Ένα παιχνίδι έχει έως {0} κάρτες.', MAX_Q), 'error'); return; }
+    markDirty();
+    select(added[0].id);
+    const head = added.length === 1 ? __('Προστέθηκε 1 κάρτα.') : __('Προστέθηκαν {0} κάρτες.', added.length);
+    const notes = (extra || []).concat(fit.notes);
+    toast([head].concat(notes).join(' '), notes.length ? 'error' : 'ok');
+  }
+  async function importCards() {
+    const empty = G.questions.length === 1 && cardEmpty(G.questions[0]);
+    const room = MAX_Q - G.questions.length + (empty ? 1 : 0);
+    if (room <= 0) { toast(__('Ένα παιχνίδι έχει έως {0} κάρτες.', MAX_Q), 'error'); return; }
+    const cards = await textImportDialog(room);
+    if (cards && alive) addCards(cards);
+  }
+  async function importQuiz() {
+    const r = await quizImportDialog(G.id);
+    if (!r || !alive) return;
+    if (!r.cards.length) { dialog({ title: __('Δεν έγιναν κάρτες'), text: __('Αυτό το κουίζ δεν έχει ερωτήσεις με σωστή απάντηση για την πίσω όψη.') }); return; }
+    if (!String(G.title || '').trim() && r.title) {
+      G.title = r.title;
+      const t = root.querySelector('#g-title');
+      if (t) t.value = r.title;
+    }
+    addCards(r.cards, r.skipped ? [r.skipped === 1 ? __('Μία ερώτηση δεν έγινε κάρτα, γιατί δεν έχει σωστή απάντηση.') : __('{0} ερωτήσεις δεν έγιναν κάρτες, γιατί δεν έχουν σωστή απάντηση.', r.skipped)] : []);
   }
   /* «Παίξε»: το παιχνίδι παίζεται αμέσως, όπως θα το έπαιζαν τα παιδιά. Δεν αποθηκεύεται τίποτα. */
   async function playNow() {
@@ -311,6 +441,7 @@ export function viewEditor(id, ctx, choice) {
     if (!ch) {
       const v = await pickDialog(G.mode);
       if (!v) return;
+      if (v === 'flashcards' && !deck) { cardsInstead(); return; }
       applyGame(v);
       ch = choiceOf(v);
     }
@@ -336,11 +467,16 @@ export function viewEditor(id, ctx, choice) {
   }
 
   /* ---------- η λίστα των ερωτήσεων ---------- */
-  const railText = (q) => String(q.text || '').trim() || __('(χωρίς κείμενο)');
+  const railText = (q) => (deck ? railTexts(q).front || __('(κενή μπροστινή όψη)') : String(q.text || '').trim() || __('(χωρίς κείμενο)'));
   function railItem(q, i) {
     const t = TYPES[q.type];
     const bad = tried && validateQuestion(q).length;
     const on = q.id === cur;
+    if (deck) {
+      const r = railTexts(q);
+      return `<li><button type="button" class="qi qi-card${on ? ' is-on' : ''}${bad ? ' has-err' : ''}" data-goto="${esc(q.id)}"${on ? ' aria-current="true"' : ''}>
+        <span class="qi-n">${i + 1}</span><span class="qi-b"><span class="qi-tx${r.front ? '' : ' is-empty'}">${esc(railText(q))}</span><span class="qi-bk${r.back ? '' : ' is-empty'}">${esc(r.back || __('(κενή πίσω όψη)'))}</span></span>${q.image ? `<img class="qi-th" src="${esc(q.image)}" alt="">` : ''}</button></li>`;
+    }
     return `<li><button type="button" class="qi${on ? ' is-on' : ''}${bad ? ' has-err' : ''}" data-goto="${esc(q.id)}"${on ? ' aria-current="true"' : ''}>
       <span class="qi-n">${i + 1}</span><span class="qi-b"><span class="qi-tx${String(q.text || '').trim() ? '' : ' is-empty'}">${esc(railText(q))}</span><span class="qi-ty">${t.icon}<span>${esc(t.label)}</span></span></span></button></li>`;
   }
@@ -400,6 +536,7 @@ export function viewEditor(id, ctx, choice) {
     const box = root.querySelector('[data-canvas]');
     if (!box) return;
     const q = qById(cur);
+    if (deck) { drawCard(box, q, focusText); return; }
     if (!q) {
       box.innerHTML = `<div class="ed-empty"><h2 class="h2">${__('Γράψε την πρώτη ερώτηση')}</h2><p class="muted">${__('Διάλεξε τι είδους ερώτηση θα είναι. Μπορείς να βάλεις διαφορετικά είδη στο ίδιο παιχνίδι.')}</p>${typeGrid()}
         <p class="ed-empty-imp"><button type="button" class="btn btn-ghost" data-import>${ICON.upload}${__('Ή εισαγωγή ερωτήσεων από κείμενο')}</button></p></div>`;
@@ -413,6 +550,52 @@ export function viewEditor(id, ctx, choice) {
     if (focusText) setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }, 20);
   }
 
+  /* ---------- μια κάρτα (τράπουλα) / one card (deck) ---------- */
+  function drawCard(box, q, focus) {
+    if (!q) {
+      box.innerHTML = `<div class="ed-empty ce-empty"><h2 class="h2">${__('Φτιάξε την πρώτη κάρτα')}</h2>
+        <p class="muted">${__('Κάθε κάρτα έχει δύο όψεις. Σε καθεμιά βάζεις κείμενο, εικόνα ή βίντεο, όποιο από τα τρία θέλεις.')}</p>
+        <p class="ce-empty-go"><button type="button" class="btn btn-primary btn-lg" data-addq>${ICON.plus}${__('Νέα κάρτα')}</button></p>
+        <p class="ed-empty-imp"><button type="button" class="btn btn-ghost" data-import>${ICON.upload}${__('Εισαγωγή από κείμενο')}</button> <button type="button" class="btn btn-ghost" data-quizimp>${ICON.copy}${__('Κάρτες από κουίζ')}</button></p></div>`;
+      return;
+    }
+    box.innerHTML = cardForm(q, G.questions.indexOf(q), G.questions.length);
+    const card = box.querySelector('.qe');
+    bindCardForm(card, q, {
+      change: markDirty,
+      redraw(sel) { drawCanvas(); const f = sel && root.querySelector(`.qe ${sel}`); if (f) f.focus(); drawRail(); },
+      setImage: (side, file) => setCardImage(q, side, file)
+    });
+    if (tried) showErrors(false);
+    if (focus) setTimeout(() => { const ta = box.querySelector('.ce-text'); if (ta) ta.focus(); }, 20);
+  }
+  /* Όσο χώρος μένει στο παιχνίδι, τόσο μεγάλη η εικόνα: στο τέλος οι νέες συμπιέζονται περισσότερο.
+     The picture gets as much room as the game has left: near the end new ones are compressed further. */
+  async function setCardImage(q, side, file) {
+    const full = () => dialog({ title: __('Δεν χωράει άλλη εικόνα'), text: __('Οι εικόνες γέμισαν τον χώρο του παιχνιδιού. Αφαίρεσε κάποια εικόνα ή χώρισε τις κάρτες σε δύο παιχνίδια. Τα βίντεο δεν πιάνουν χώρο.') });
+    const o = sideOf(q, side);
+    const old = o.image;
+    o.image = '';
+    const room = LIMIT - JSON.stringify(G).length - 2000;
+    o.image = old;
+    if (room < CARD_MIN) { full(); return; }
+    const b = busy(__('Ετοιμάζεται η εικόνα…'));
+    try {
+      const img = await readImage(file, CARD.dim, Math.min(CARD.bytes, room));
+      o.image = img;
+      if (JSON.stringify(G).length > LIMIT) { o.image = old; full(); }
+      else {
+        markDirty();
+        drawCanvas();
+        drawRail();
+      }
+    } catch (er) {
+      if (room < CARD.bytes && /^image\//.test((file && file.type) || '')) full();
+      else toast(errText(er), 'error');
+    }
+    b.close();
+  }
+
   /* ---------- δεξιά: ρυθμίσεις ---------- */
   function drawPanel() {
     const box = root.querySelector('[data-panel]');
@@ -421,7 +604,7 @@ export function viewEditor(id, ctx, choice) {
     const t = q && TYPES[q.type];
     const qid = q ? esc(q.id) : '';
     box.innerHTML = `<div class="ready" data-ready aria-live="polite"></div>
-      ${q ? `<section class="pn" data-q="${qid}" aria-labelledby="pn-q"><h3 class="pn-h" id="pn-q">${__('Αυτή η ερώτηση')}</h3>
+      ${q && !deck ? `<section class="pn" data-q="${qid}" aria-labelledby="pn-q"><h3 class="pn-h" id="pn-q">${__('Αυτή η ερώτηση')}</h3>
         ${t.scored && usesQuizExtras(G.mode) ? `<label class="pn-row"><span>${__('Διπλοί πόντοι')}</span><input type="checkbox" class="tog" data-c="double" ${q.double ? 'checked' : ''}></label>` : ''}
         <div class="field"><label class="label" for="qc-${qid}">${__('Θεματική')} <span class="muted">${__('(γίνεται στήλη στο Jeopardy)')}</span></label><input class="input" id="qc-${qid}" list="ed-cats" maxlength="40" data-c="category" value="${esc(q.category || '')}" placeholder="${__('π.χ. Γεωγραφία')}"></div>
         <div class="field"><label class="label" for="qx-${qid}">${__('Εξήγηση μετά την απάντηση')}</label><textarea class="input" id="qx-${qid}" rows="3" maxlength="400" data-c="explain" placeholder="${__('Τη βλέπουν οι μαθητές αφού απαντήσουν.')}">${esc(q.explain || '')}</textarea></div>
@@ -457,7 +640,8 @@ export function viewEditor(id, ctx, choice) {
     }).then(() => { if (picked) addQuestion(picked); });
   }
   function addQuestion(type) {
-    if (G.questions.length >= MAX_Q) { toast(`${__('Ένα παιχνίδι έχει έως {0} ερωτήσεις.', MAX_Q)}`, 'error'); return; }
+    if (G.questions.length >= MAX_Q) { toast(deck ? __('Ένα παιχνίδι έχει έως {0} κάρτες.', MAX_Q) : `${__('Ένα παιχνίδι έχει έως {0} ερωτήσεις.', MAX_Q)}`, 'error'); return; }
+    if (deck) type = 'card';
     const at = qById(cur);
     const q = newQuestion(type, 'q' + rid(8));
     if (at) q.time = TYPES[type].ownImage ? Math.max(Number(at.time) || 0, q.time) : at.time;
@@ -515,10 +699,11 @@ export function viewEditor(id, ctx, choice) {
   root.addEventListener('click', async (e) => {
     const add = e.target.closest('[data-add]');
     if (add) { addQuestion(add.dataset.add); return; }
-    if (e.target.closest('[data-addq]')) { typeDialog(); return; }
+    if (e.target.closest('[data-addq]')) { if (deck) addQuestion('card'); else typeDialog(); return; }
+    if (e.target.closest('[data-quizimp]')) { importQuiz(); return; }
     const go = e.target.closest('[data-goto]');
     if (go) { if (go.dataset.goto !== cur) select(go.dataset.goto); return; }
-    if (e.target.closest('[data-import]')) { importDialog(); return; }
+    if (e.target.closest('[data-import]')) { if (deck) importCards(); else importDialog(); return; }
     if (e.target.closest('[data-change-game]')) { changeGame(); return; }
     if (e.target.closest('[data-cover]')) { coverDialog(); return; }
     if (e.target.closest('[data-saveplay]')) { sendToClass(); return; }
@@ -528,8 +713,9 @@ export function viewEditor(id, ctx, choice) {
     if (!act) return;
     const a = act.dataset.act;
     const q = a === 'preview' ? qById(cur) : qOf(act);
-    if (!q) { if (a === 'preview') toast(__('Πρόσθεσε πρώτα μια ερώτηση.')); return; }
+    if (!q) { if (a === 'preview') toast(deck ? __('Πρόσθεσε πρώτα μια κάρτα.') : __('Πρόσθεσε πρώτα μια ερώτηση.')); return; }
     const i = G.questions.indexOf(q);
+    if (a === 'preview' && deck) { cardPreview(q); return; }
     if (a === 'preview') {
       const errs = validateQuestion(q);
       if (errs.length) { dialog({ title: __('Η ερώτηση δεν είναι έτοιμη'), text: (__('Διόρθωσε πρώτα:') + ' ') + errs.join(' · ') + '.' }); return; }
@@ -538,16 +724,18 @@ export function viewEditor(id, ctx, choice) {
     if (a === 'up' && i > 0) { G.questions.splice(i - 1, 0, G.questions.splice(i, 1)[0]); markDirty(); select(q.id); focusAct('up'); }
     if (a === 'down' && i < G.questions.length - 1) { G.questions.splice(i + 1, 0, G.questions.splice(i, 1)[0]); markDirty(); select(q.id); focusAct('down'); }
     if (a === 'dup') {
-      if (G.questions.length >= MAX_Q) { toast(`${__('Ένα παιχνίδι έχει έως {0} ερωτήσεις.', MAX_Q)}`, 'error'); return; }
+      if (G.questions.length >= MAX_Q) { toast(deck ? __('Ένα παιχνίδι έχει έως {0} κάρτες.', MAX_Q) : `${__('Ένα παιχνίδι έχει έως {0} ερωτήσεις.', MAX_Q)}`, 'error'); return; }
+      if (deck && JSON.stringify(G).length + JSON.stringify(q).length > LIMIT) { toast(__('Οι εικόνες γέμισαν τον χώρο του παιχνιδιού.'), 'error'); return; }
       const copyQ = Object.assign(JSON.parse(JSON.stringify(q)), { id: 'q' + rid(8) });
       G.questions.splice(i + 1, 0, copyQ);
       markDirty();
       select(copyQ.id, true);
-      toast(__('Έγινε αντίγραφο της ερώτησης.'), 'ok');
+      toast(deck ? __('Έγινε αντίγραφο της κάρτας.') : __('Έγινε αντίγραφο της ερώτησης.'), 'ok');
     }
     if (a === 'del') {
-      const untouched = !q.text && !q.image && validateQuestion(q).length > 0;
-      if (untouched || await confirmDanger(`${__('Διαγραφή της ερώτησης {0};', i + 1)}`, q.text ? `«${q.text.slice(0, 80)}»` : '')) {
+      const untouched = deck ? cardEmpty(q) : !q.text && !q.image && validateQuestion(q).length > 0;
+      const what = deck ? railTexts(q).front : q.text;
+      if (untouched || await confirmDanger(deck ? __('Διαγραφή της κάρτας {0};', i + 1) : `${__('Διαγραφή της ερώτησης {0};', i + 1)}`, what ? `«${what.slice(0, 80)}»` : '')) {
         const at = G.questions.indexOf(q);
         G.questions.splice(at, 1);
         const next = G.questions[Math.min(at, G.questions.length - 1)];
@@ -595,8 +783,9 @@ export function viewEditor(id, ctx, choice) {
       t.focus();
       return;
     }
-    if (!G.questions.length) { toast(__('Πρόσθεσε τουλάχιστον μία ερώτηση.'), 'error'); return; }
+    if (!G.questions.length) { toast(deck ? __('Πρόσθεσε τουλάχιστον μία κάρτα.') : __('Πρόσθεσε τουλάχιστον μία ερώτηση.'), 'error'); return; }
     const bad = showErrors(true);
+    if (bad && deck) { toast(bad === 1 ? __('Μία κάρτα χρειάζεται διόρθωση (σημειώνεται με κόκκινο).') : __('{0} κάρτες χρειάζονται διόρθωση (σημειώνονται με κόκκινο).', bad), 'error'); return; }
     if (bad) { toast(bad === 1 ? __('Μία ερώτηση χρειάζεται διόρθωση (σημειώνεται με κόκκινο).') : `${bad} ${__('ερωτήσεις χρειάζονται διόρθωση (σημειώνονται με κόκκινο).')}`, 'error'); return; }
     const ch = choiceOf(G.mode);
     if (ch && !readiness(G.mode, G.questions).ok) { toast(__('Το παιχνίδι «{0}» χρειάζεται τουλάχιστον {1} ερωτήσεις με σωστή απάντηση.', ch.label, NEED), 'error'); return; }
